@@ -13,7 +13,7 @@ This will train for 1000 epochs and save the model point_ssl_1000.t7 to checkpoi
 Alternatively, use the one that is already there.
 
 
-### Compare not pretrained and pretrained model on point cloud classification task using 1 % of labeled data
+### Point cloud classification task using 1 % of labeled data
 
 Not pretrained:
 
@@ -33,7 +33,7 @@ pointSSL_with_pretraining_250.t7 is in checkpoints/models as well
 
 Achieved best test accuracy: 49.64%
 
-### Test
+### Test and compare Results
 
 Test accuracy of not pretrained model:
 
