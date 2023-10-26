@@ -108,7 +108,7 @@ def train(model:POINT_SSL, train_loader:DataLoader, test_loader:DataLoader, crit
 def __parse_args__():
     parser = argparse.ArgumentParser(description='Point Cloud Classification')
     parser.add_argument('--batch_size', type=int, default=256, metavar='batch_size',
-                        help='Size of batch, default 32)')
+                        help='Size of batch, default 256)')
     parser.add_argument('--epochs', type=int, default=250, metavar='N',
                         help='Number of training epochs, default 250')
     parser.add_argument('--lr', type=float, default=0.01, metavar='LR',

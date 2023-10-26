@@ -35,7 +35,13 @@ Achieved best test accuracy: 49.64%
 
 ### Test
 
+Test accuracy of not pretrained model:
 
+`python test.py --saved_model pointSSL_without_pretraining_250.t7`
+
+Test accuracy of pretrained model:
+
+`python test.py --saved_model pointSSL_with_pretraining_250.t7`
 
 # Credits
 
