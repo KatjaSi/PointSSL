@@ -77,11 +77,9 @@ class ModelNetForSSL(Dataset):
         return x_prime, x
 
 def main():
-    print(torch.cuda.is_available())
-    return
     train_points, _ = load_data("train")
     test_points, _ = load_data("test")
-    train_set = ModelNetForSSL(combined_train_points, num_points=2048, crop_percentage=0.3)
+    train_set = ModelNetForSSL(train_points, num_points=2048, crop_percentage=0.3)
     train_loader = DataLoader(dataset=train_set, num_workers=4, batch_size=512, shuffle=True)
 
     model = POINT_SSL()
@@ -90,7 +88,7 @@ def main():
     optimizer = optim.SGD(model.parameters(), lr=0.001, momentum=0.9, weight_decay=5e-4)
     train(model, train_loader, loss, optimizer,1000)
 
-    torch.save(model.state_dict(), 'checkpoints/models/point_ssl.t7')
+    torch.save(model.state_dict(), 'checkpoints/models/point_ssl_1000.t7')
 
 
 if __name__ == '__main__':

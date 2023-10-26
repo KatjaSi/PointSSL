@@ -2,6 +2,8 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
+from flash_attn import flash_attn_qkvpacked_func, flash_attn_func
+
 
 class POINT_SSL(nn.Module):
 
@@ -39,7 +41,7 @@ class POINT_SSL(nn.Module):
             return x_prime_rep, x_rep, x_prime_projection, x_projection
         else:
             # Fine-tuning mode: compute features for x_prime only
-            x = self.forward_single(x_prime, downstream=downstream) # TODO: works? worked when downstream=True
+            x = self.forward_single(x_prime, downstream=downstream) 
             return x #, x_prime_projection
         
 
@@ -55,7 +57,7 @@ class POINT_SSL(nn.Module):
         x = self.conv_fuse(x)
 
         # collapses the spatial dimension (num_points) to 1, resulting in a tensor of shape (batch_size, num_features, 1)
-        x = F.adaptive_max_pool1d(x, 1) # TODO: this is CLS token!
+        x = F.adaptive_max_pool1d(x, 1) # this is CLS token? representerer hele pc
         x = x.view(batch_size, -1)
 
         x = self.linear1(x)
