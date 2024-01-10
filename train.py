@@ -99,9 +99,9 @@ def train(model:POINT_SSL, train_loader:DataLoader, test_loader:DataLoader, crit
         if test_acc >= best_test_acc:
             best_test_acc = test_acc
             if not pretrained:
-                torch.save(model.state_dict(), 'checkpoints/models/pointSSL_without_pretraining_250.t7')
+                torch.save(model.state_dict(), 'checkpoints/models/pointSSL_without_pretraining_250_2.t7')
             else:
-                torch.save(model.state_dict(), 'checkpoints/models/pointSSL_with_pretraining_250.t7')
+                torch.save(model.state_dict(), 'checkpoints/models/pointSSL_with_pretraining_250_2.t7')
     
     print(f"Finished Training, best test accuracy is {best_test_acc}")
 

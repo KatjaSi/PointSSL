@@ -9,6 +9,11 @@ from torch.utils.data import DataLoader
 from criterion import cross_entropy_loss_with_label_smoothing
 from pointSSL import POINT_SSL
 from data import  ModelNet
+import os 
+
+#os.environ["CUDA_VISIBLE_DEVICES"] = "0,1"
+
+from torch.nn.parallel import DistributedDataParallel as DDP
 
 from data import load_data
 seed = 42
@@ -66,6 +71,7 @@ def main():
     pct = POINT_SSL(output_channels=40)
 
     pct = nn.DataParallel(pct)
+    #pct = DDP(pct)
 
     pct.load_state_dict(torch.load(f'checkpoints/models/{args.saved_model}'), strict=False)
 
