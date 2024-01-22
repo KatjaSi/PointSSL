@@ -20,17 +20,17 @@ class POINT_SSL(nn.Module):
         self.encoder3 = EncoderModule(256, num_heads=4)
         self.encoder4 = EncoderModule(256, num_heads=4)
 
-        self.conv_fuse = nn.Sequential(nn.Conv1d(256, 256, kernel_size=1, bias=False),
-                                   nn.BatchNorm1d(256), 
+        self.conv_fuse = nn.Sequential(nn.Conv1d(256*4, 256*4, kernel_size=1, bias=False), #*4 to conctat all ecnoders
+                                   nn.BatchNorm1d(256*4), 
                                    nn.LeakyReLU(negative_slope=0.2))
-        self.linear1 = nn.Linear(256, 128, bias=False)                       
-        self.bn6 = nn.BatchNorm1d(128) 
+        self.linear1 = nn.Linear(256*4+256*4, 256, bias=False)     # will concat max pool and avg pool      
+        self.bn6 = nn.BatchNorm1d(256) 
         self.dp1 = nn.Dropout(0.5)
-        self.linear2 = nn.Linear(128, 128) # global rep
+        self.linear2 = nn.Linear(256, 128) # global rep
 
-        
         # projection layers      
-        self.linear3 = nn.Linear(128, 64) # This representation will go into loss function
+       # self.linear3 = nn.Linear(128, 64) # This representation will go into loss function
+        self.projection = ProjectionHead(128) # output is 32
 
         # added for fine-tuning, do not use linear3 when fine-tuning
         self.linear4 = nn.Linear(128, output_channels)
@@ -53,25 +53,30 @@ class POINT_SSL(nn.Module):
 
         x = self.embedding_module(x)
 
-        x = self.encoder1(x)
-        x = self.encoder2(x)
-        x = self.encoder3(x)
-        x = self.encoder4(x)
+        x1 = self.encoder1(x)
+        x2 = self.encoder2(x1)
+        x3 = self.encoder3(x2)
+        x4 = self.encoder4(x3)
+        x = torch.cat((x1, x2, x3, x4), dim=1)
         x = self.conv_fuse(x)
 
         # collapses the spatial dimension (num_points) to 1, resulting in a tensor of shape (batch_size, num_features, 1)
-        x = F.adaptive_max_pool1d(x, 1) # this is CLS token? representerer hele pc
-        x = x.view(batch_size, -1)
+        x_max_pool = F.adaptive_max_pool1d(x, 1).view(batch_size, -1) # this is CLS token representerer hele pc
+        x_avg_pool = F.adaptive_avg_pool1d(x, 1).view(batch_size, -1)
+        #x = x.view(batch_size, -1)
+        x = torch.cat((x_max_pool, x_avg_pool), dim=1)
 
         x = self.linear1(x)
         x = self.bn6(x) 
         x = F.leaky_relu(x, negative_slope=0.2) 
         x = self.dp1(x) 
+        
         x_rep = self.linear2(x)
         x = F.leaky_relu(x_rep, negative_slope=0.2) # F.relu(x)
         #x = self.dp2(x) 
         if not downstream:
-            x = self.linear3(x)
+           # x = self.linear3(x)
+            x = self.projection(x)
             return x_rep, x # global rep, projection
         else: # if downstream
             x = self.linear4(x)
@@ -205,4 +210,16 @@ class MultiHeadSelfAttention(nn.Module):
         x = flash_attn_func(q, k, v) 
         x = torch.cat(tuple(x.unbind(3)), dim=2)
         x = x.permute(0,2,1)
+        return x
+
+class ProjectionHead(nn.Module):
+    def __init__(self, in_features):
+        super(ProjectionHead, self).__init__()
+        self.linear1 = nn.Linear(in_features, 64) 
+        self.linear2 = nn.Linear(64, 32) # This representation will go into loss function# This representation will go into loss function
+
+    def forward(self, x):
+        x = self.linear1(x)
+        x = F.leaky_relu(x, negative_slope=0.2) 
+        x = self.linear2(x)
         return x

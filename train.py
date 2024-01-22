@@ -11,7 +11,7 @@ from criterion import cross_entropy_loss_with_label_smoothing
 from pointSSL import POINT_SSL
 from data import  ModelNet
 
-from data import load_data
+from data import load_data, load_data2
 seed = 42
 random.seed(seed)
 
@@ -99,9 +99,11 @@ def train(model:POINT_SSL, train_loader:DataLoader, test_loader:DataLoader, crit
         if test_acc >= best_test_acc:
             best_test_acc = test_acc
             if not pretrained:
-                torch.save(model.state_dict(), 'checkpoints/models/pointSSL_without_pretraining_250_2.t7')
+                #torch.save(model.state_dict(), 'checkpoints/models/pointSSL_without_pretraining_250_3.t7') # 91.57 % now
+                pass
             else:
-                torch.save(model.state_dict(), 'checkpoints/models/pointSSL_with_pretraining_250_2.t7')
+               # torch.save(model.state_dict(), 'checkpoints/models/pointSSL_with_pretraining_250_3.t7')
+               pass
     
     print(f"Finished Training, best test accuracy is {best_test_acc}")
 
@@ -134,19 +136,32 @@ def reduce_data(data, labels, percentage=10):
 def main():
     
     args = __parse_args__()
-    train_points, train_labels = load_data("train")
-    test_points, test_labels = load_data("test")
+    #train_points, train_labels = load_data("train")
+    #test_points, test_labels = load_data("test")
+    train_points, train_labels = load_data2("train", folder="shapenetcorev2_hdf5_2048")
+    test_points, test_labels = load_data2("test",  folder="shapenetcorev2_hdf5_2048")
 
-    reduced_train_points, reduced_train_labels = reduce_data(train_points, train_labels, percentage=1)
+  #  reduced_train_points, reduced_train_labels = reduce_data(train_points, train_labels, percentage=10)
 
 
-    train_set = ModelNet(reduced_train_points, reduced_train_labels, set_type="train", num_points=args.num_points)
+    train_set = ModelNet(train_points, train_labels, set_type="train", num_points=args.num_points) #reduced_train_points
     test_set = ModelNet(test_points, test_labels, set_type="test", num_points=args.num_points)
  
-    pct = POINT_SSL(output_channels=40)
+    pct = POINT_SSL(output_channels=55) #40
     # pretrained or not?
     if args.pretrained:
-        pct.load_state_dict(torch.load('checkpoints/models/point_ssl_1000.t7'), strict=False)
+       # pct.load_state_dict(torch.load('checkpoints/models/point_ssl_1000_8.t7'), strict=False) # point_ssl_1000_8 = strategy2
+       state_dict = torch.load('checkpoints/models/point_ssl_1000_8.t7')
+       #print(state_dict.keys())
+       del state_dict['projection.linear1.weight']
+       del state_dict['projection.linear1.bias']
+       del state_dict['projection.linear2.weight']
+       del state_dict['projection.linear2.bias']
+       del state_dict['linear4.weight']
+       del state_dict['linear4.bias']
+
+        # Load the modified state dictionary into the model, setting strict to False
+       pct.load_state_dict(state_dict, strict=False)
     
 
     # Set batch size

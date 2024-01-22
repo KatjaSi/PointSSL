@@ -6,6 +6,7 @@ import torch.nn as nn
 from torch.utils.data import DataLoader
 
 from sklearn.manifold import TSNE 
+import pandas as pd
 import seaborn as sns 
 
 from pointSSL import POINT_SSL
@@ -27,9 +28,9 @@ def main():
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     device = torch.device(device)
     point_ssl = POINT_SSL()
-    point_ssl.load_state_dict(torch.load('checkpoints/models/point_ssl_1000.t7'), strict=False)
+    point_ssl.load_state_dict(torch.load('checkpoints/models/point_ssl_151_strategy2_shapenet.t7'), strict=False)
 
-    train_points, train_labels = load_data("test")
+    train_points, train_labels = load_data("train")
 
     # Get indices of samples with labels in the first 10 classes
     indices_first_n_classes = np.where(train_labels < args.num_classes)[0]
@@ -37,7 +38,7 @@ def main():
     train_points = np.array([train_points[i] for i in indices_first_n_classes])
     train_labels = np.array([train_labels[i] for i in indices_first_n_classes])
 
-    train_set = ModelNet(train_points, train_labels, set_type="test", num_points=2048) #TODO: replace with test
+    train_set = ModelNet(train_points, train_labels, set_type="test", num_points=2048) #should be test
     loader = DataLoader(dataset=train_set, num_workers=2, batch_size=args.batch_size, shuffle=True)   
    
     embeddings_list = []
