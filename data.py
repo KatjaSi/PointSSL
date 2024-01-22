@@ -3,6 +3,7 @@ import glob
 import h5py
 import numpy as np
 from torch.utils.data import Dataset
+import matplotlib.pyplot as plt
 
 
 def load_data(partition):
@@ -11,6 +12,22 @@ def load_data(partition):
     all_data = []
     all_label = []
     for h5_name in glob.glob(os.path.join(DATA_DIR, 'modelnet40_ply_hdf5_2048', 'ply_data_%s*.h5'%partition)):
+        f = h5py.File(h5_name)
+        data = f['data'][:].astype('float32')
+        label = f['label'][:].astype('int64')
+        f.close()
+        all_data.append(data)
+        all_label.append(label)
+    all_data = np.concatenate(all_data, axis=0)
+    all_label = np.concatenate(all_label, axis=0)
+    return all_data, all_label
+
+def load_data2(partition, folder):
+    BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+    DATA_DIR = os.path.join(BASE_DIR, 'data')
+    all_data = []
+    all_label = []
+    for h5_name in glob.glob(os.path.join(DATA_DIR, folder, '%s*.h5'%partition)):
         f = h5py.File(h5_name)
         data = f['data'][:].astype('float32')
         label = f['label'][:].astype('int64')
@@ -74,3 +91,18 @@ class ModelNet(Dataset):
         return x, y    
 
 
+if __name__ == '__main__':
+    train_points, train_labels = load_data2("train", folder='shapenetcorev2_hdf5_2048') #'modelnet10_hdf5_2048'
+    x, y, z = train_points[10].T
+
+    fig = plt.figure()
+    ax = fig.add_subplot(111, projection='3d')
+
+    ax.scatter(x, y, z, c='b', marker='.')
+    ax.set_xlabel('X')
+    ax.set_ylabel('Y')
+    ax.set_zlabel('Z')
+
+    plt.show()
+    plt.savefig("output.png")
+    print(len(train_points))

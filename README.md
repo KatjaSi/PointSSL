@@ -17,7 +17,7 @@ Alternatively, use the one that is already there.
 
 Not pretrained:
 
-`python train.py --batch_size 256  --epochs 250`
+`python train.py --batch_size 64  --epochs 250`
 
 This will save the model pointSSL_without_pretraining_250_2.t7 with best test accuracy to checkpoints\models.
 
@@ -27,9 +27,9 @@ Achieved Best test accuracy: 41.86%
 
 Pretrained:
 
-`python train.py --batch_size 256  --epochs 250 --pretrained`
+`python train.py --batch_size 64  --epochs 250 --pretrained`
 
-pointSSL_with_pretraining_250_2.t7 is in checkpoints/models as well
+pointSSL_with_pretraining_250.t7 is in checkpoints/models as well
 
 Achieved best test accuracy: 49.64%
 

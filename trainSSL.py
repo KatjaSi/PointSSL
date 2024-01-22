@@ -3,14 +3,15 @@ import torch.nn as nn
 import numpy as np
 import copy
 import torch.optim as optim
+import random
 from torch.utils.data import DataLoader
 from torch.optim.lr_scheduler import CosineAnnealingLR
 from torch.utils.data import Dataset
 from pytorch_metric_learning.losses import NTXentLoss
 from pointSSL import POINT_SSL
-from data import  ModelNet, random_point_dropout, translate_pointcloud, load_data
+from data import  ModelNet, random_point_dropout, translate_pointcloud, load_data, load_data2
 
-from agumentation import random_volume_crop_pc
+from agumentation import random_volume_crop_pc, rotate_pc
 
 
 def train(model:POINT_SSL, train_loader:DataLoader, criterion,  optimizer, num_epochs):
@@ -47,16 +48,19 @@ def train(model:POINT_SSL, train_loader:DataLoader, criterion,  optimizer, num_e
 
         outstr = 'Epoch: %d, loss: %.6f' % (epoch, running_loss*1.0/count)
         print(outstr)
+        if ((epoch) % 50 == 0):
+            torch.save(model.state_dict(), f'checkpoints/models/point_ssl_{epoch+1}_strategy2_shapenet.t7')
 
 
             
             
 
 class ModelNetForSSL(Dataset):
-    def __init__(self, data, num_points=1024, crop_percentage=0.4):
+    def __init__(self, data, num_points, crop_percentage=None, augmentation_strategy="strategy_2"):
         self.data = data
         self.num_points = num_points
         self.crop_percentage = crop_percentage
+        self.augmentation_strategy = augmentation_strategy
 
     def __len__(self):
         return len(self.data)
@@ -65,30 +69,47 @@ class ModelNetForSSL(Dataset):
         x = self.data[idx][:self.num_points]
         x_prime = copy.deepcopy(x)
 
-        x = random_point_dropout(x) 
-        x = translate_pointcloud(x)
-        np.random.shuffle(x)
+        if self.augmentation_strategy == "strategy_2":
+            x = random_point_dropout(x) 
+            x = translate_pointcloud(x)
+            np.random.shuffle(x)
 
-        x_prime = random_volume_crop_pc(x_prime, crop_percentage=self.crop_percentage)
-        x_prime = random_point_dropout(x_prime) 
-        x_prime = translate_pointcloud(x_prime)
-        np.random.shuffle(x_prime)
+           # x_prime = random_volume_crop_pc(x_prime, crop_percentage=self.crop_percentage)
+            x_prime = random_volume_crop_pc(x_prime, crop_percentage=random.uniform(0.2, 0.8))
+            x_prime = rotate_pc(x_prime, (random.uniform(-np.pi/2, np.pi/2), random.uniform(-np.pi/2, np.pi/2), random.uniform(-np.pi/2, np.pi/2) ))
+            x_prime = random_point_dropout(x_prime) 
+            x_prime = translate_pointcloud(x_prime)
+            np.random.shuffle(x_prime)
 
+            return x_prime, x
+        
+        if self.augmentation_strategy == "strategy_1":
+            x = random_point_dropout(x) 
+            x = translate_pointcloud(x)
+            np.random.shuffle(x)
+
+            x_prime = random_volume_crop_pc(x_prime, crop_percentage=self.crop_percentage)
+            x_prime = random_point_dropout(x_prime) 
+            x_prime = translate_pointcloud(x_prime)
+            np.random.shuffle(x_prime)
+
+            return x_prime, x
+        
         return x_prime, x
 
 def main():
-    train_points, _ = load_data("train")
-    test_points, _ = load_data("test")
-    train_set = ModelNetForSSL(train_points, num_points=2048, crop_percentage=0.3)
+    train_points, _ = load_data2("train", folder='shapenetcorev2_hdf5_2048')
+    test_points, _ = load_data2("test", folder='shapenetcorev2_hdf5_2048')
+    train_set = ModelNetForSSL(train_points, num_points=2048, augmentation_strategy="strategy_2")
     train_loader = DataLoader(dataset=train_set, num_workers=4, batch_size=512, shuffle=True)
 
     model = POINT_SSL()
 
     loss = NTXentLoss(temperature = 0.1)
     optimizer = optim.SGD(model.parameters(), lr=0.001, momentum=0.9, weight_decay=5e-4)
-    train(model, train_loader, loss, optimizer,1000)
+    train(model, train_loader, loss, optimizer, 1000)
 
-    torch.save(model.state_dict(), 'checkpoints/models/point_ssl_1000.t7')
+    torch.save(model.state_dict(), 'checkpoints/models/point_ssl_1000_strategy2_shapenet.t7') # point_ssl_1000_8.t7 = strategy 2
 
 
 if __name__ == '__main__':
