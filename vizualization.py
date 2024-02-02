@@ -10,7 +10,10 @@ import pandas as pd
 import seaborn as sns 
 
 from pointSSL import POINT_SSL
+from siam import EncoderSiam
 from data import load_data, ModelNet
+
+from demo import SimpleModel
 
 
 def __parse_args__():
@@ -27,8 +30,11 @@ def main():
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     device = torch.device(device)
-    point_ssl = POINT_SSL()
-    point_ssl.load_state_dict(torch.load('checkpoints/models/point_ssl_151_strategy2_shapenet.t7'), strict=False)
+    #point_ssl = POINT_SSL()
+    #model = EncoderSiam()
+    model = SimpleModel()
+    #model.load_state_dict(torch.load('checkpoints/models/simsiam/simsiam_200.t7'), strict=False)
+
 
     train_points, train_labels = load_data("train")
 
@@ -39,20 +45,20 @@ def main():
     train_labels = np.array([train_labels[i] for i in indices_first_n_classes])
 
     train_set = ModelNet(train_points, train_labels, set_type="test", num_points=2048) #should be test
-    loader = DataLoader(dataset=train_set, num_workers=2, batch_size=args.batch_size, shuffle=True)   
+    loader = DataLoader(dataset=train_set, num_workers=1, batch_size=512, shuffle=True)   
    
     embeddings_list = []
     labels_list = []
 
-    point_ssl = point_ssl.half().to(device)
-    point_ssl.eval()
+    model = model.half().to(device)
+    model.eval()
 
     with torch.no_grad():
         for sample in loader:
             data, labels = sample
             data = data.half().to(device)
             data = data.permute(0, 2, 1)
-            embeddings, _ = point_ssl(data)
+            embeddings = model(data) # embeddings, _
 
             embeddings_list.append(embeddings.cpu().detach().numpy())
             labels_list.append(labels.cpu().detach().numpy())
@@ -63,7 +69,9 @@ def main():
     labels = labels.reshape(-1)
 
     # Get low-dimensional t-SNE embeddings
-    embeddings_2d = TSNE(n_components=2).fit_transform(embeddings)
+    embeddings_2d = TSNE(n_components=2, perplexity=60).fit_transform(embeddings)
+
+    embeddings_2d = (embeddings_2d - np.mean(embeddings_2d, axis=0)) / np.std(embeddings_2d, axis=0)
 
     # Plot
     custom_palette10 = [

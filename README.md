@@ -47,7 +47,7 @@ Test accuracy of pretrained model:
 
 TSNE plot of embeddings. Num_classes <= 40, batch_size is the total number of point clouds vizualization
 
-`python vizualization.py --num_classes 10 --batch_size 512`
+`python vizualization.py --num_classes 10`
 ![scatter_plot (2)](https://github.com/KatjaSi/PointSSL/assets/69903665/433cb2fb-e5a3-4057-8569-d036552d96f9)
 
 0 airplane
