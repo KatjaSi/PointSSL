@@ -23,7 +23,7 @@ class POINT_SSL(nn.Module):
         self.conv_fuse = nn.Sequential(nn.Conv1d(256*4, 256*4, kernel_size=1, bias=False), #*4 to conctat all ecnoders
                                    nn.BatchNorm1d(256*4), 
                                    nn.LeakyReLU(negative_slope=0.2))
-        self.linear1 = nn.Linear(256*4+256*4, 256, bias=False)     # will concat max pool and avg pool      
+        self.linear1 = nn.Linear(256*4+256*4, 256, bias=False)    
         self.bn6 = nn.BatchNorm1d(256) 
         self.dp1 = nn.Dropout(0.5)
         self.linear2 = nn.Linear(256, 128) # global rep
