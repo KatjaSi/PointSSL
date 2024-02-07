@@ -8,10 +8,10 @@ import os
 #os.environ["CUDA_VISIBLE_DEVICES"] = "0"
 
 
-class PCT(nn.Module):
+class PCT_BASE(nn.Module):
 
     def __init__(self, in_channels=3, out_channels=256):
-        super(PCT, self).__init__()
+        super(PCT_BASE, self).__init__()
 
         self.embedding_module = EmbeddingModule(in_channels=in_channels, out_channels=256)
 
@@ -24,8 +24,8 @@ class PCT(nn.Module):
                                    nn.BatchNorm1d(256*4), 
                                    nn.LeakyReLU(negative_slope=0.2))
         self.linear1 = nn.Linear(256*4+256*4, out_channels, bias=False)     # # global rep 256
-        self.bn6 = nn.BatchNorm1d(out_channels) 
-        self.dp1 = nn.Dropout(0.5)
+       # self.bn6 = nn.BatchNorm1d(out_channels) 
+        #self.dp1 = nn.Dropout(0.5)
        # self.linear2 = nn.Linear(1024, 512) # global rep
 
         
@@ -49,9 +49,9 @@ class PCT(nn.Module):
         x = torch.cat((x_max_pool, x_avg_pool), dim=1)
 
         x = self.linear1(x) # best learned representations are after this layer
-        x = self.bn6(x) 
+       # x = self.bn6(x)  TODO: do i need it when pretraining?
       #  x = F.leaky_relu(x, negative_slope=0.2) # TODO this a part of projection layer
-        x = self.dp1(x)       
+       # x = self.dp1(x)       
        # x = self.linear2(x) # representation
         return x
 
@@ -144,3 +144,6 @@ class MultiHeadSelfAttention(nn.Module):
         x = torch.cat(tuple(x.unbind(3)), dim=2)
         x = x.permute(0,2,1)
         return x
+
+
+

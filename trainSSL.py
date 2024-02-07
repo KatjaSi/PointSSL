@@ -15,11 +15,13 @@ from data import  ModelNet, random_point_dropout, translate_pointcloud, load_dat
 from agumentation import random_volume_crop_pc, rotate_pc
 
 
-def train(model:POINT_SSL2, train_loader:DataLoader, criterion,  optimizer, num_epochs):
+def train(model, projector, train_loader, criterion,  optimizer, num_epochs):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    device = torch.device(device)
     model = model.half().to(device)
     model = nn.DataParallel(model)
+    projector = projector.half().to(device)
+    projector = nn.DataParallel(projector)
+
 
     learning_rate = optimizer.param_groups[0]['lr']
     scheduler = CosineAnnealingLR(optimizer, num_epochs, eta_min=learning_rate/100)
@@ -35,17 +37,23 @@ def train(model:POINT_SSL2, train_loader:DataLoader, criterion,  optimizer, num_
             x = x.permute(0, 2, 1)
             x_prime = x_prime.permute(0,2,1)
             optimizer.zero_grad()
-            x_prime_rep, x_rep, x_prime_projection, x_projection = model(x_prime, x)
+            x_prime_rep = model(x_prime)
+            x_rep = model(x)
+            x_prime_projection = projector(x_prime_rep)
+            x_projection = projector(x_rep)
             projections = torch.cat((x_prime_projection, x_projection))
             indices = torch.arange(0, x_prime_projection.shape[0])
             labels = torch.cat((indices, indices))
             loss = criterion(projections, labels)
             loss.backward()
             optimizer.step()  
-            scheduler.step()
+           # scheduler.step() TODO: where should it be?
 
             count += batch_size
             running_loss += loss.item() * batch_size
+        scheduler.step()
+        if (epoch % 100 == 0):
+            torch.save(model.state_dict(), f'checkpoints/models/pct_simclr/pct_leiset_02{epoch+1}.t7')
 
         outstr = 'Epoch: %d, loss: %.6f' % (epoch, running_loss*1.0/count)
         print(outstr)
@@ -70,15 +78,18 @@ class ModelNetForSSL(Dataset):
         x_prime = copy.deepcopy(x)
 
         if self.augmentation_strategy == "strategy_2":
+            x = jitter_pointcloud(x)
             x = random_point_dropout(x) 
             x = translate_pointcloud(x)
+            x = add_gaussian_noise(x)
             np.random.shuffle(x)
 
-           # x_prime = random_volume_crop_pc(x_prime, crop_percentage=self.crop_percentage)
-            x_prime = random_volume_crop_pc(x_prime, crop_percentage=random.uniform(0.2, 0.8))
-            x_prime = rotate_pc(x_prime, (random.uniform(-np.pi/2, np.pi/2), random.uniform(-np.pi/2, np.pi/2), random.uniform(-np.pi/2, np.pi/2) ))
+            x_prime = random_volume_crop_pc(x_prime, crop_percentage=random.uniform(0.1, 0.5)) #0.2,0.8
+            x_prime = jitter_pointcloud(x_prime)
             x_prime = random_point_dropout(x_prime) 
             x_prime = translate_pointcloud(x_prime)
+            x_prime = rotate_pointcloud(x_prime)
+            x_prime = add_gaussian_noise(x_prime)
             np.random.shuffle(x_prime)
 
             return x_prime, x
@@ -98,18 +109,17 @@ class ModelNetForSSL(Dataset):
         return x_prime, x
 
 def main():
-    train_points, _ =  load_data("train") #load_data2("train", folder='shapenetcorev2_hdf5_2048')
-    test_points, _ =  load_data("test") #load_data2("test", folder='shapenetcorev2_hdf5_2048')
+    train_points =  load_point_cloud_data_from_npy(data_dir="data/lei_dataset", num_files=20, num_points=2048)
     train_set = ModelNetForSSL(train_points, num_points=2048, augmentation_strategy="strategy_2")
-    train_loader = DataLoader(dataset=train_set, num_workers=4, batch_size=256, shuffle=True)
+    train_loader = DataLoader(dataset=train_set, num_workers=1, batch_size=256, shuffle=True)
 
-    model = POINT_SSL2()
+    model = PCT_BASE(out_channels=512)
 
-    loss = NTXentLoss(temperature = 0.1)
+    loss = NTXentLoss(temperature = 0.2) #0.1
     optimizer = optim.SGD(model.parameters(), lr=0.001, momentum=0.9, weight_decay=5e-4)
-    train(model, train_loader, loss, optimizer, 1000)
-
-    torch.save(model.state_dict(), 'checkpoints/models/pointssl2/point_ss2_1000_strategy2_modelnet.t7') # point_ssl_1000_8.t7 = strategy 2
+    projector = MLPProjectionHead2(512, 256, 128)
+    train(model, projector, train_loader, loss, optimizer, 401)
+    torch.save(model.state_dict(), 'checkpoints/models/pct_simclr/pct_leiset.t7') # point_ssl_1000_8.t7 = strategy 2
 
 
 if __name__ == '__main__':

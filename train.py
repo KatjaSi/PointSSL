@@ -11,11 +11,16 @@ from criterion import cross_entropy_loss_with_label_smoothing
 from pointSSL import POINT_SSL
 from data import  ModelNet
 
-from data import load_data, load_data2
+from data import  ModelNet, ModelNetAugmented
+from models.task_model import PointCloudTaskModel
+from models.linear_models import ClassifierHead
+
+from data import load_data
+from models.transformers import PCT_BASE
 seed = 42
 random.seed(seed)
 
-def train(model:POINT_SSL, train_loader:DataLoader, test_loader:DataLoader, criterion, optimizer, num_epochs, pretrained):
+def train(model, train_loader:DataLoader, test_loader:DataLoader, criterion, optimizer, num_epochs, pretrained):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     device = torch.device(device)
     model = model.half().to(device)
@@ -136,31 +141,19 @@ def reduce_data(data, labels, percentage=10):
 def main():
     
     args = __parse_args__()
-    #train_points, train_labels = load_data("train")
-    #test_points, test_labels = load_data("test")
-    train_points, train_labels = load_data2("train", folder="shapenetcorev2_hdf5_2048")
-    test_points, test_labels = load_data2("test",  folder="shapenetcorev2_hdf5_2048")
-
-  #  reduced_train_points, reduced_train_labels = reduce_data(train_points, train_labels, percentage=10)
-
-
-    train_set = ModelNet(train_points, train_labels, set_type="train", num_points=args.num_points) #reduced_train_points
-    test_set = ModelNet(test_points, test_labels, set_type="test", num_points=args.num_points)
+    train_points, train_labels = load_data("train", "data/modelnet40_ply_hdf5_2048")
+    test_points, test_labels = load_data("test", "data/modelnet40_ply_hdf5_2048") #modelnet40_augmented_test
+    #train_points, train_labels = load_data("train", "data/shapenetcorev2_hdf5_2048")
+    #test_points, test_labels = load_data("test",  "data/shapenetcorev2_hdf5_2048")
  
-    pct = POINT_SSL(output_channels=55) #40
+
+    train_set = ModelNet(train_points, train_labels, num_points=args.num_points) #reduced_train_points
+    test_set = ModelNet(test_points, test_labels, num_points=args.num_points ) #set_type="test"
+ 
+    pct = POINT_SSL(output_channels=40) #40
     # pretrained or not?
     if args.pretrained:
-       # pct.load_state_dict(torch.load('checkpoints/models/point_ssl_1000_8.t7'), strict=False) # point_ssl_1000_8 = strategy2
        state_dict = torch.load('checkpoints/models/point_ssl_1000_8.t7')
-       #print(state_dict.keys())
-       del state_dict['projection.linear1.weight']
-       del state_dict['projection.linear1.bias']
-       del state_dict['projection.linear2.weight']
-       del state_dict['projection.linear2.bias']
-       del state_dict['linear4.weight']
-       del state_dict['linear4.bias']
-
-        # Load the modified state dictionary into the model, setting strict to False
        pct.load_state_dict(state_dict, strict=False)
     
 
@@ -170,13 +163,13 @@ def main():
     # Create DataLoader instances
     train_loader = DataLoader(
                     dataset=train_set,
-                    num_workers=4,
+                    num_workers=1,
                     batch_size=batch_size,
                     shuffle=True,
                     worker_init_fn=lambda x: torch.manual_seed(seed))
     test_loader = DataLoader(
                     dataset=test_set, 
-                    num_workers=4,
+                    num_workers=1,
                     batch_size=batch_size, 
                     shuffle=False,  
                     worker_init_fn=lambda x: torch.manual_seed(seed))
