@@ -13,10 +13,10 @@ from data import  ModelNet
 
 from data import  ModelNet, ModelNetAugmented
 from models.task_model import PointCloudTaskModel
-from models.linear_models import ClassifierHead
+from models.linear_models import ClassifierHead, MLPProjectionHead2
 
 from data import load_data
-from models.transformers import PCT_BASE
+from models.transformers import PCT_BASE, PCT_BASE2
 seed = 42
 random.seed(seed)
 
@@ -44,7 +44,7 @@ def train(model, train_loader:DataLoader, test_loader:DataLoader, criterion, opt
             labels = labels.to(device)
             data = data.permute(0, 2, 1)
             optimizer.zero_grad()
-            outputs = model(data, downstream=True)
+            outputs = model(data) #downstream=True
             loss = criterion(outputs, labels)
             loss.backward()
             optimizer.step()
@@ -79,7 +79,7 @@ def train(model, train_loader:DataLoader, test_loader:DataLoader, criterion, opt
             data, labels = data.half().to(device), labels.to(device)
             data = data.permute(0, 2, 1)
             batch_size = data.size()[0]
-            outputs = model(data, downstream=True)
+            outputs = model(data) # , downstream=True
             loss = criterion(outputs, labels)
             preds = outputs.max(dim=1)[1]
             count += batch_size
@@ -150,12 +150,15 @@ def main():
     train_set = ModelNet(train_points, train_labels, num_points=args.num_points) #reduced_train_points
     test_set = ModelNet(test_points, test_labels, num_points=args.num_points ) #set_type="test"
  
-    pct = POINT_SSL(output_channels=40) #40
+    pct = PCT_BASE2(out_channels=128)
+    classifier = MLPProjectionHead2(128, 64, 40)
     # pretrained or not?
     if args.pretrained:
        state_dict = torch.load('checkpoints/models/point_ssl_1000_8.t7')
        pct.load_state_dict(state_dict, strict=False)
-    
+
+
+    model = PointCloudTaskModel(feature_extractor=pct, classifier=classifier) #POINT_SSL(output_channels=40) #40
 
     # Set batch size
     batch_size = args.batch_size

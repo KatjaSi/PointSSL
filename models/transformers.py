@@ -55,6 +55,54 @@ class PCT_BASE(nn.Module):
        # x = self.linear2(x) # representation
         return x
 
+class PCT_BASE2(nn.Module): # compatible with pointssl
+
+    def __init__(self, in_channels=3, out_channels=128):
+        super(PCT_BASE2, self).__init__()
+
+        self.embedding_module = EmbeddingModule(in_channels=in_channels, out_channels=256)
+
+        self.encoder1 = EncoderModule(256, num_heads=4)
+        self.encoder2 = EncoderModule(256, num_heads=4)
+        self.encoder3 = EncoderModule(256, num_heads=4)
+        self.encoder4 = EncoderModule(256, num_heads=4)
+
+        self.conv_fuse = nn.Sequential(nn.Conv1d(256*4, 256*4, kernel_size=1, bias=False), #*4 to conctat all ecnoders
+                                   nn.BatchNorm1d(256*4), 
+                                   nn.LeakyReLU(negative_slope=0.2))
+        self.linear1 = nn.Linear(256*4+256*4, 256, bias=False)    
+        self.bn6 = nn.BatchNorm1d(256) 
+        self.dp1 = nn.Dropout(0.5)
+        self.linear2 = nn.Linear(256, out_channels) # global rep
+    
+
+    def forward(self,x):
+        batch_size, _, _ = x.size()
+
+        x = self.embedding_module(x)
+
+        x1 = self.encoder1(x)
+        x2 = self.encoder2(x1)
+        x3 = self.encoder3(x2)
+        x4 = self.encoder4(x3)
+        x = torch.cat((x1, x2, x3, x4), dim=1)
+        x = self.conv_fuse(x)
+
+        # collapses the spatial dimension (num_points) to 1, resulting in a tensor of shape (batch_size, num_features, 1)
+        x_max_pool = F.adaptive_max_pool1d(x, 1).view(batch_size, -1) # this is CLS token representerer hele pc
+        x_avg_pool = F.adaptive_avg_pool1d(x, 1).view(batch_size, -1)
+        #x = x.view(batch_size, -1)
+        x = torch.cat((x_max_pool, x_avg_pool), dim=1)
+
+        x = self.linear1(x)
+        x = self.bn6(x) 
+        x = F.leaky_relu(x, negative_slope=0.2) 
+        x = self.dp1(x) 
+
+        x = self.linear2(x)
+
+        return x
+
 
 
 class EmbeddingModule(nn.Module):
