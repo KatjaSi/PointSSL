@@ -29,33 +29,6 @@ def __scale_pc__(pc, axis, new_min, new_max):
     pc[:,axis] = pc[:,axis]+new_min-np.min(pc[:,axis])
 
 
-def random_volume_crop_pc(pc, crop_percentage):
-    """
-    Randomly removes a percentage of volume from a point cloud.
-
-    Parameters:
-        pc (numpy array): The point cloud.
-        crop_percentage (float): The percentage of volume to crop (0.0 to 1.0).
-
-    Returns:
-        numpy array: The point cloud with the cropped region removed.
-    """
-    # Get the bounding box of the point cloud
-    min_coords = np.min(pc, axis=0)
-    max_coords = np.max(pc, axis=0)
-    bounding_box_dimensions = max_coords - min_coords
-   # Calculate the volume to crop
-    crop_lengths = bounding_box_dimensions*crop_percentage**(1/3)
-    
-    # Generate random coordinates for the minimum corner of the cuboid
-    crop_min = min_coords + np.random.rand(3) * (bounding_box_dimensions - crop_lengths)
-    crop_max = crop_min + crop_lengths
-
-    # Keep the points outside the cuboid region
-    cropped_pc = pc[(np.any(pc < crop_min, axis=1)) | (np.any(pc > crop_max, axis=1))]
-    cropped_pc = uniform_sample_points(cropped_pc, pc.shape[0])
-    return cropped_pc
-
 def rotate_pc(pc, angles):
     """
     Rotate a 3D point cloud around specified axes.

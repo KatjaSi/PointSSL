@@ -16,7 +16,7 @@ from models.task_model import PointCloudTaskModel
 from models.linear_models import ClassifierHead, MLPProjectionHead2
 
 from data import load_data
-from models.transformers import PCT_BASE, PCT_BASE2
+from models.transformers import PCT_BASE, PCT_BASE2, PCT
 seed = 42
 random.seed(seed)
 
@@ -147,37 +147,41 @@ def main():
     #test_points, test_labels = load_data("test",  "data/shapenetcorev2_hdf5_2048")
  
 
-    train_set = ModelNet(train_points, train_labels, num_points=args.num_points) #reduced_train_points
-    test_set = ModelNet(test_points, test_labels, num_points=args.num_points ) #set_type="test"
+    train_set = ModelNet(train_points, train_labels, num_points=args.num_points, set_type="train") #reduced_train_points ModelNetAugmented
+    test_set = ModelNet(test_points, test_labels, num_points=args.num_points, set_type="test" ) #set_type="test" ModelNetAugmented
  
-    pct = PCT_BASE2(out_channels=128)
+    pct = PCT(out_channels=128, num_cls_tokens=4)
     classifier = MLPProjectionHead2(128, 64, 40)
     # pretrained or not?
     if args.pretrained:
-       state_dict = torch.load('checkpoints/models/point_ssl_1000_8.t7')
-       pct.load_state_dict(state_dict, strict=False)
+       state_dict = torch.load('checkpoints/models/pct_simclr/pct_base2_leiset251.t7') # 'checkpoints/models/point_ssl_1000_8.t7' 
+       new_state_dict = {}
+       for key in state_dict.keys():
+        new_key = key.replace('module.', '', 1)
+        new_state_dict[new_key] = state_dict[key]
+       pct.load_state_dict(new_state_dict) #strict=False #TODO: this could be a problem
 
 
     model = PointCloudTaskModel(feature_extractor=pct, classifier=classifier) #POINT_SSL(output_channels=40) #40
-
+    model.set_mode("fine_tuning") #TODO
     # Set batch size
     batch_size = args.batch_size
 
     # Create DataLoader instances
     train_loader = DataLoader(
                     dataset=train_set,
-                    num_workers=1,
+                    num_workers=2,
                     batch_size=batch_size,
                     shuffle=True,
                     worker_init_fn=lambda x: torch.manual_seed(seed))
     test_loader = DataLoader(
                     dataset=test_set, 
-                    num_workers=1,
+                    num_workers=2,
                     batch_size=batch_size, 
                     shuffle=False,  
                     worker_init_fn=lambda x: torch.manual_seed(seed))
 
-    opt = optim.SGD(pct.parameters(), lr=args.lr, momentum=args.momentum, weight_decay=5e-4) 
+    opt = optim.SGD(model.parameters(), lr=args.lr, momentum=args.momentum, weight_decay=5e-4) # pct
     train(  model=pct,
             train_loader=train_loader,
             test_loader=test_loader,

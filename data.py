@@ -1,9 +1,11 @@
 import os
 import glob
+import copy
 import h5py
 import numpy as np
 from torch.utils.data import Dataset
 import matplotlib.pyplot as plt
+import random
 
 
 def load_data(partition, data_dir):
@@ -35,6 +37,22 @@ def load_point_cloud_data_from_npy(data_dir, num_files, num_points):
     # Concatenate all data
     all_data = np.concatenate(all_data, axis=0)
     return all_data
+
+def random_volume_crop_pc(pc, crop_percentage):
+    min_coords = np.min(pc, axis=0)
+    max_coords = np.max(pc, axis=0)
+    bounding_box_dimensions = max_coords - min_coords
+   # Calculate the volume to crop
+    crop_lengths = bounding_box_dimensions*crop_percentage**(1/3)
+    
+    # Generate random coordinates for the minimum corner of the cuboid
+    crop_min = min_coords + np.random.rand(3) * (bounding_box_dimensions - crop_lengths)
+    crop_max = crop_min + crop_lengths
+
+    # Keep the points outside the cuboid region
+    cropped_pc = pc[(np.any(pc < crop_min, axis=1)) | (np.any(pc > crop_max, axis=1))]
+    cropped_pc = uniform_sample_points(cropped_pc, pc.shape[0])
+    return cropped_pc
 
 
 def random_point_dropout(pc, max_dropout_ratio=0.875):
@@ -79,9 +97,9 @@ def add_gaussian_noise(pointcloud, sigma=0.05):
 
 # additional augmentations to make the downstram task harder
 def rotate_pointcloud(pointcloud):
-    angle_x = np.random.uniform(0, 2*np.pi)  # 0 to 360 degrees in radians
-    angle_y = np.random.uniform(0, 2*np.pi)
-    angle_z = np.random.uniform(0, 2*np.pi)
+    angle_x = np.random.uniform(-np.pi/2, np.pi/2)  
+    angle_y = np.random.uniform(-np.pi/2, np.pi/2) 
+    angle_z = np.random.uniform(-np.pi/2, np.pi/2) 
 
     # Rotation matrix around X-axis
     R_x = np.array([[1, 0, 0],
@@ -148,6 +166,35 @@ class ModelNetAugmented(Dataset):
         np.random.shuffle(x)
         return x, y  
 
+
+class ModelNetForSSL(Dataset):
+    def __init__(self, data, num_points):
+        self.data = data
+        self.num_points = num_points
+
+    def __len__(self):
+        return len(self.data)
+    
+    def __getitem__(self, idx): 
+        x = self.data[idx][:self.num_points]
+        x_prime = copy.deepcopy(x)
+
+
+        x = jitter_pointcloud(x)
+        x = random_point_dropout(x) 
+        x = translate_pointcloud(x)
+        x = add_gaussian_noise(x)
+        np.random.shuffle(x)
+
+        x_prime = random_volume_crop_pc(x_prime, crop_percentage=random.uniform(0.2, 0.8)) #0.2,0.8
+        x_prime = jitter_pointcloud(x_prime)
+        x_prime = random_point_dropout(x_prime) 
+        x_prime = translate_pointcloud(x_prime)
+        x_prime = rotate_pointcloud(x_prime)
+        x_prime = add_gaussian_noise(x_prime)
+        np.random.shuffle(x_prime)
+
+        return x_prime, x
 
 if __name__ == '__main__':
     #train_points, train_labels = load_data2("train", folder='shapenetcorev2_hdf5_2048') #'modelnet10_hdf5_2048'

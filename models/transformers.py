@@ -70,7 +70,7 @@ class PCT_BASE2(nn.Module): # compatible with pointssl
         self.conv_fuse = nn.Sequential(nn.Conv1d(256*4, 256*4, kernel_size=1, bias=False), #*4 to conctat all ecnoders
                                    nn.BatchNorm1d(256*4), 
                                    nn.LeakyReLU(negative_slope=0.2))
-        self.linear1 = nn.Linear(256*4+256*4, 256, bias=False)    
+        self.linear1 = nn.Linear(256*4+256*4, 256, bias=False)    # alternative global rep
         self.bn6 = nn.BatchNorm1d(256) 
         self.dp1 = nn.Dropout(0.5)
         self.linear2 = nn.Linear(256, out_channels) # global rep
@@ -93,12 +93,67 @@ class PCT_BASE2(nn.Module): # compatible with pointssl
         x_avg_pool = F.adaptive_avg_pool1d(x, 1).view(batch_size, -1)
         #x = x.view(batch_size, -1)
         x = torch.cat((x_max_pool, x_avg_pool), dim=1)
-
         x = self.linear1(x)
         x = self.bn6(x) 
         x = F.leaky_relu(x, negative_slope=0.2) 
         x = self.dp1(x) 
 
+        x = self.linear2(x)
+
+        return x
+
+
+class PCT(nn.Module):  # Modified Point Cloud Transformer using only CLS tokens
+    def __init__(self, in_channels=3, out_channels=128, num_cls_tokens=1):
+        super(PCT, self).__init__()
+
+        self.num_cls_tokens = num_cls_tokens
+        # Initialize CLS tokens with the correct shape
+        self.cls_tokens = nn.Parameter(torch.zeros(num_cls_tokens, 1, 256))
+        self.embedding_module = EmbeddingModule(in_channels=in_channels, out_channels=256)
+
+        self.encoder1 = EncoderModule(256, num_heads=4)
+        self.encoder2 = EncoderModule(256, num_heads=4)
+        self.encoder3 = EncoderModule(256, num_heads=4)
+        self.encoder4 = EncoderModule(256, num_heads=4)
+
+        # Adjusted to directly work with the output of the encoder
+        self.conv_fuse = nn.Sequential(nn.Conv1d(256*4, 256, kernel_size=1, bias=False),
+                                       nn.BatchNorm1d(256), 
+                                       nn.LeakyReLU(negative_slope=0.2))
+        
+        # Linear layer to process concatenated CLS tokens
+        self.linear1 = nn.Linear(256 * num_cls_tokens, 256, bias=False)  # Adjusted dimension for concatenated CLS tokens
+        self.bn6 = nn.BatchNorm1d(256) 
+        self.dp1 = nn.Dropout(0.5)
+        self.linear2 = nn.Linear(256, out_channels)  # Final output layer
+
+    def forward(self, x):
+        batch_size, _, _ = x.size()
+        
+        # Process input point cloud through the embedding module
+        x = self.embedding_module(x)
+
+        cls_tokens = self.cls_tokens.repeat(1, batch_size, 1)  # Shape: (num_cls_tokens, batch_size, feature_dim)
+        cls_tokens = cls_tokens.permute(1, 2, 0)  #  shape: (batch_size, feature_dim, num_cls_tokens)
+        
+        # Concatenate CLS tokens with the point cloud embeddings along the seq_len dimension
+        x = torch.cat((cls_tokens, x), dim=2)  # Adjust to concatenate along the correct dimension
+
+        cls_tokens_1 = self.encoder1(x)[:, :, :self.num_cls_tokens]
+        cls_tokens_2 = self.encoder2(x)[:, :, :self.num_cls_tokens]
+        cls_tokens_3 = self.encoder3(x)[:, :, :self.num_cls_tokens]
+        cls_tokens_4 = self.encoder4(x)[:, :, :self.num_cls_tokens]
+        # Extract CLS tokens after passing through encoders
+        #cls_tokens = x[:, :, :self.num_cls_tokens]  # Assuming CLS tokens are the first in the sequence
+        cls_tokens =torch.cat((cls_tokens_1, cls_tokens_2, cls_tokens_3, cls_tokens_4), dim=1)
+       
+        cls_tokens = self.conv_fuse(cls_tokens) 
+        cls_tokens = cls_tokens.view(batch_size,-1)
+        x = self.linear1(cls_tokens)
+        x = self.bn6(x)
+        x = F.leaky_relu(x, negative_slope=0.2)
+        x = self.dp1(x)
         x = self.linear2(x)
 
         return x
@@ -137,7 +192,7 @@ class EncoderModule(nn.Module):
     def __init__(self, in_features=256, num_heads=8):
         super(EncoderModule, self).__init__()
         
-        self.mh_sa = MultiHeadSelfAttention(in_features=in_features, head_dim=int(in_features/num_heads), num_heads=num_heads) # in_features is dim of each point
+        self.mh_sa = MultiHeadSelfAttentionTorch(in_features=in_features, head_dim=int(in_features/num_heads), num_heads=num_heads) # in_features is dim of each point
         self.bn_after_sa = nn.BatchNorm1d(in_features)
 
         # Linear layer is to learn  interactions within each embedding independently of other embeddings
@@ -194,4 +249,20 @@ class MultiHeadSelfAttention(nn.Module):
         return x
 
 
+class MultiHeadSelfAttentionTorch(nn.Module):
+    def __init__(self, in_features, head_dim, num_heads):
+        super(MultiHeadSelfAttentionTorch, self).__init__()
+        
+        self.in_features = in_features
+        self.num_heads = num_heads
+        self.head_dim = head_dim
+        self.attention = nn.MultiheadAttention(embed_dim=in_features, num_heads=num_heads, batch_first=True)
+        self.out_linear = nn.Linear(in_features, in_features)
 
+    def forward(self, x):
+        x = x.permute(0, 2, 1)
+        attn_output, _ = self.attention(x, x, x)  # Self-attention
+        output = self.out_linear(attn_output)
+        output = output.permute(0, 2, 1)
+        
+        return output
