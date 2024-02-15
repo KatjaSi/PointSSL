@@ -16,7 +16,7 @@ from models.task_model import PointCloudTaskModel
 from models.linear_models import ClassifierHead, MLPProjectionHead2
 
 from data import load_data
-from models.transformers import PCT_BASE, PCT_BASE2, PCT
+from models.transformers import PCT_BASE, PCT_BASE2, PCT, SPCT
 seed = 42
 random.seed(seed)
 
@@ -48,7 +48,7 @@ def train(model, train_loader:DataLoader, test_loader:DataLoader, criterion, opt
             loss = criterion(outputs, labels)
             loss.backward()
             optimizer.step()
-            scheduler.step()
+           # scheduler.step()
 
             preds = outputs.max(dim=1)[1]
             count += batch_size
@@ -56,6 +56,7 @@ def train(model, train_loader:DataLoader, test_loader:DataLoader, criterion, opt
             train_true.append(labels.cpu().numpy())
             train_pred.append(preds.detach().cpu().numpy())
             idx += 1
+        scheduler.step()
             
         train_true = np.concatenate(train_true)
         train_pred = np.concatenate(train_pred)
@@ -119,8 +120,8 @@ def __parse_args__():
     parser.add_argument('--epochs', type=int, default=250, metavar='N',
                         help='Number of training epochs, default 250')
     parser.add_argument('--lr', type=float, default=0.01, metavar='LR',
-                        help='Learning rate (0.01 by defaukt)')
-    parser.add_argument('--num_points', type=int, default=2048,
+                        help='Learning rate (0.01 by default)')
+    parser.add_argument('--num_points', type=int, default=1024,
                         help='Num of points to sample from each point cloud')
     parser.add_argument('--momentum', type=float, default=0.9, metavar='M',
                         help='SGD momentum (default: 0.9)')
@@ -150,8 +151,10 @@ def main():
     train_set = ModelNet(train_points, train_labels, num_points=args.num_points, set_type="train") #reduced_train_points ModelNetAugmented
     test_set = ModelNet(test_points, test_labels, num_points=args.num_points, set_type="test" ) #set_type="test" ModelNetAugmented
  
-    pct = PCT(out_channels=128, num_cls_tokens=4)
-    classifier = MLPProjectionHead2(128, 64, 40)
+    pct = PCT(out_channels=256, num_cls_tokens=1, num_encoders=8) #out_channels=256, num_cls_tokens=4, num_encoders=12
+    #pct = PCT_BASE2(out_channels=256)
+    #classifier = MLPProjectionHead2(128, 64, 40)
+    classifier = ClassifierHead(input_dim=256, output_channels=40)
     # pretrained or not?
     if args.pretrained:
        state_dict = torch.load('checkpoints/models/pct_simclr/pct_base2_leiset251.t7') # 'checkpoints/models/point_ssl_1000_8.t7' 
@@ -163,7 +166,8 @@ def main():
 
 
     model = PointCloudTaskModel(feature_extractor=pct, classifier=classifier) #POINT_SSL(output_channels=40) #40
-    model.set_mode("fine_tuning") #TODO
+  #  model.set_mode("fine_tuning") #TODO
+    #model = SPCT()
     # Set batch size
     batch_size = args.batch_size
 
@@ -182,7 +186,9 @@ def main():
                     worker_init_fn=lambda x: torch.manual_seed(seed))
 
     opt = optim.SGD(model.parameters(), lr=args.lr, momentum=args.momentum, weight_decay=5e-4) # pct
-    train(  model=pct,
+    #optimizer = optim.Adam(model.parameters(), lr=args.lr, weight_decay=5e-4)
+
+    train(  model=model,
             train_loader=train_loader,
             test_loader=test_loader,
             criterion=cross_entropy_loss_with_label_smoothing,

@@ -28,19 +28,23 @@ class MLPProjectionHead2(nn.Module):
 
 
 class ClassifierHead(nn.Module):
-    def __init__(self, input_dim=512, output_channels=40):
+    def __init__(self, input_dim=256, output_channels=40):
         super(ClassifierHead, self).__init__()
         self.bn1 = nn.BatchNorm1d(input_dim)
         self.dp1 = nn.Dropout(0.5)
-        self.linear2 = nn.Linear(input_dim, 256) # global rep
-        self.linear3 = nn.Linear(256, output_channels)
+        self.linear2 = nn.Linear(input_dim, 128) # global rep
+        self.dp2 = nn.Dropout(0.5)
+        self.linear3 = nn.Linear(128, output_channels)
     
     def forward(self, x):
-       # x = self.bn1(x) 
+        x = self.bn1(x) #TODO: do i need this?
         x = F.leaky_relu(x, negative_slope=0.2) 
         x = self.dp1(x) 
+
         x = self.linear2(x)
         x = F.leaky_relu(x, negative_slope=0.2) 
+       # x = self.dp2(x)
+
         x = self.linear3(x)
         return x
 

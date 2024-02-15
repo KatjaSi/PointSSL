@@ -70,8 +70,10 @@ def random_point_dropout(pc, max_dropout_ratio=0.875):
     return pc
 
 def translate_pointcloud(pointcloud):
-    xyz1 = np.random.uniform(low=2./3., high=3./2., size=[3])
-    xyz2 = np.random.uniform(low=-0.2, high=0.2, size=[3])
+    #xyz1 = np.random.uniform(low=2./3., high=3./2., size=[3])
+    #xyz2 = np.random.uniform(low=-0.2, high=0.2, size=[3])
+    xyz1 = np.random.uniform(low=.85, high=1.15, size=[3]) # stretching 
+    xyz2 = np.random.uniform(low=-0.1, high=0.1, size=[3]) # translation
        
     translated_pointcloud = np.add(np.multiply(pointcloud, xyz1), xyz2).astype('float32')
     return translated_pointcloud
@@ -139,8 +141,8 @@ class ModelNet(Dataset):
         x = self.data[idx][:self.num_points]
         y = self.labels[idx]
         if self.set_type == 'train':
-            x = jitter_pointcloud(x, sigma=0.01, clip=0.02)
-            x = random_point_dropout(x) 
+           # x = jitter_pointcloud(x, sigma=0.01, clip=0.02)
+            #x = random_point_dropout(x) 
             x = translate_pointcloud(x)
             np.random.shuffle(x)
         return x, y    

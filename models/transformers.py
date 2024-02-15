@@ -67,13 +67,13 @@ class PCT_BASE2(nn.Module): # compatible with pointssl
         self.encoder3 = EncoderModule(256, num_heads=4)
         self.encoder4 = EncoderModule(256, num_heads=4)
 
-        self.conv_fuse = nn.Sequential(nn.Conv1d(256*4, 256*4, kernel_size=1, bias=False), #*4 to conctat all ecnoders
-                                   nn.BatchNorm1d(256*4), 
+        self.conv_fuse = nn.Sequential(nn.Conv1d(256*4, 256*2, kernel_size=1, bias=False), #*4 to conctat all ecnoders
+                                   nn.BatchNorm1d(256*2), 
                                    nn.LeakyReLU(negative_slope=0.2))
-        self.linear1 = nn.Linear(256*4+256*4, 256, bias=False)    # alternative global rep
-        self.bn6 = nn.BatchNorm1d(256) 
-        self.dp1 = nn.Dropout(0.5)
-        self.linear2 = nn.Linear(256, out_channels) # global rep
+        self.linear1 = nn.Linear(256*4, 256, bias=False)    # alternative global rep
+      #  self.bn6 = nn.BatchNorm1d(256) 
+      #  self.dp1 = nn.Dropout(0.5)
+      #  self.linear2 = nn.Linear(256, out_channels) # global rep
     
 
     def forward(self,x):
@@ -94,68 +94,126 @@ class PCT_BASE2(nn.Module): # compatible with pointssl
         #x = x.view(batch_size, -1)
         x = torch.cat((x_max_pool, x_avg_pool), dim=1)
         x = self.linear1(x)
-        x = self.bn6(x) 
-        x = F.leaky_relu(x, negative_slope=0.2) 
-        x = self.dp1(x) 
+       # x = self.bn6(x) 
+       # x = F.leaky_relu(x, negative_slope=0.2) 
+       # x = self.dp1(x) 
 
-        x = self.linear2(x)
+       # x = self.linear2(x)
 
         return x
 
+class SPCT(nn.Module):
 
-class PCT(nn.Module):  # Modified Point Cloud Transformer using only CLS tokens
-    def __init__(self, in_channels=3, out_channels=128, num_cls_tokens=1):
-        super(PCT, self).__init__()
 
-        self.num_cls_tokens = num_cls_tokens
-        # Initialize CLS tokens with the correct shape
-        self.cls_tokens = nn.Parameter(torch.zeros(num_cls_tokens, 1, 256))
-        self.embedding_module = EmbeddingModule(in_channels=in_channels, out_channels=256)
+    def __init__(self, output_channels=40):
+        super(SPCT, self).__init__()
+
+        self.conv1 = nn.Conv1d(3, 128, kernel_size=1, bias=False)
+        self.conv2 = nn.Conv1d(128, 256, kernel_size=1, bias=False) #128 <-> 256
+
+        self.bn1 = nn.BatchNorm1d(128)
+        self.bn2 = nn.BatchNorm1d(256)
 
         self.encoder1 = EncoderModule(256, num_heads=4)
         self.encoder2 = EncoderModule(256, num_heads=4)
         self.encoder3 = EncoderModule(256, num_heads=4)
         self.encoder4 = EncoderModule(256, num_heads=4)
 
+        self.conv_fuse = nn.Sequential(nn.Conv1d(1024, 1024, kernel_size=1, bias=False),
+                                   nn.BatchNorm1d(1024), # 1024
+                                   nn.LeakyReLU(negative_slope=0.2))
+        
+        self.linear1 = nn.Linear(1024, 512, bias=False) #1024, 512
+        self.bn6 = nn.BatchNorm1d(512) # 512
+        self.dp1 = nn.Dropout(0.5)
+ 
+        self.linear2 = nn.Linear(512, 256) #512, 256
+        self.bn7 = nn.BatchNorm1d(256) #256
+        self.dp2 = nn.Dropout(0.5)
+
+        self.linear3 = nn.Linear(256, output_channels) #256
+
+    def forward(self, x):
+        batch_size, _, _ = x.size()
+        x = F.leaky_relu(self.bn1(self.conv1(x)), negative_slope=0.2)
+        x = F.leaky_relu(self.bn2(self.conv2(x)), negative_slope=0.2)  
+
+        x1 = self.encoder1(x)
+        x2 = self.encoder2(x1)
+        x3 = self.encoder3(x2)
+        x4 = self.encoder4(x3)
+        x = torch.cat((x1, x2, x3, x4), dim=1)
+        x = self.conv_fuse(x)
+        x = F.adaptive_max_pool1d(x, 1)
+        x = x.view(batch_size, -1)
+
+        x = self.linear1(x)
+        x = self.bn6(x) 
+        x = F.leaky_relu(x, negative_slope=0.2) 
+        x = self.dp1(x) 
+
+        x = self.linear2(x)
+        #x = self.bn7(x)
+        x = F.leaky_relu(x, negative_slope=0.2) 
+        x = self.dp2(x) 
+
+        x = self.linear3(x)
+        return x
+
+
+class PCT(nn.Module):  # Modified Point Cloud Transformer using only CLS tokens
+    def __init__(self, num_encoders=8, in_channels=3, out_channels=256, num_cls_tokens=1):
+        super(PCT, self).__init__()
+
+        self.num_cls_tokens = num_cls_tokens
+        # Initialize CLS tokens with the correct shape
+        self.cls_tokens = nn.Parameter(torch.randn(num_cls_tokens, 1, in_channels))
+
+        self.embedding_module = EmbeddingModule(in_channels=in_channels, out_channels=256)
+
+        self.encoders = nn.ModuleList([EncoderModule(256, num_heads=4) for _ in range(num_encoders)])
         # Adjusted to directly work with the output of the encoder
-        self.conv_fuse = nn.Sequential(nn.Conv1d(256*4, 256, kernel_size=1, bias=False),
-                                       nn.BatchNorm1d(256), 
+        self.conv_fuse = nn.Sequential(nn.Conv1d(256*(num_encoders//2), 256*(num_encoders//2), kernel_size=1, bias=False),
+                                       nn.BatchNorm1d(256*(num_encoders//2)), 
                                        nn.LeakyReLU(negative_slope=0.2))
         
         # Linear layer to process concatenated CLS tokens
-        self.linear1 = nn.Linear(256 * num_cls_tokens, 256, bias=False)  # Adjusted dimension for concatenated CLS tokens
-        self.bn6 = nn.BatchNorm1d(256) 
-        self.dp1 = nn.Dropout(0.5)
-        self.linear2 = nn.Linear(256, out_channels)  # Final output layer
+        self.linear1 = nn.Linear(256*(num_encoders//2), out_channels, bias=True)  # Adjusted dimension for concatenated CLS tokens
+      #  self.bn6 = nn.BatchNorm1d(256) 
+       # self.dp1 = nn.Dropout(0.5)
+       # self.linear2 = nn.Linear(256, out_channels)  # Final output layer
 
     def forward(self, x):
         batch_size, _, _ = x.size()
         
+        cls_tokens = self.cls_tokens.repeat(1, batch_size, 1)  # Shape: (num_cls_tokens, batch_size, in_channels)
+        cls_tokens = cls_tokens.permute(1, 2, 0)  #  shape: (batch_size, in_channels, num_cls_tokens)
+        x = torch.cat((cls_tokens, x), dim=2)  
         # Process input point cloud through the embedding module
         x = self.embedding_module(x)
+        #for encoder in self.encoders:
+         #   x = encoder(x)[:, :, :self.num_cls_tokens]
+        #cls_tokens = x[:, :, :self.num_cls_tokens]  # CLS tokens are the first in the sequence
+        encoder_outputs = []
+        i = 0
+        for encoder in self.encoders:
+            x = encoder(x)
+            if (i % 2 == 1):
+                encoder_outputs.append(x[:, :, :self.num_cls_tokens])
+            i += 1
 
-        cls_tokens = self.cls_tokens.repeat(1, batch_size, 1)  # Shape: (num_cls_tokens, batch_size, feature_dim)
-        cls_tokens = cls_tokens.permute(1, 2, 0)  #  shape: (batch_size, feature_dim, num_cls_tokens)
-        
-        # Concatenate CLS tokens with the point cloud embeddings along the seq_len dimension
-        x = torch.cat((cls_tokens, x), dim=2)  # Adjust to concatenate along the correct dimension
-
-        cls_tokens_1 = self.encoder1(x)[:, :, :self.num_cls_tokens]
-        cls_tokens_2 = self.encoder2(x)[:, :, :self.num_cls_tokens]
-        cls_tokens_3 = self.encoder3(x)[:, :, :self.num_cls_tokens]
-        cls_tokens_4 = self.encoder4(x)[:, :, :self.num_cls_tokens]
-        # Extract CLS tokens after passing through encoders
-        #cls_tokens = x[:, :, :self.num_cls_tokens]  # Assuming CLS tokens are the first in the sequence
-        cls_tokens =torch.cat((cls_tokens_1, cls_tokens_2, cls_tokens_3, cls_tokens_4), dim=1)
-       
+        # Concatenate all encoder outputs along a new dimension
+        cls_tokens = torch.cat(encoder_outputs, dim=1)
+       # cls_tokens =torch.cat((cls_tokens_1, cls_tokens_2, cls_tokens_3, cls_tokens_4), dim=1)
         cls_tokens = self.conv_fuse(cls_tokens) 
-        cls_tokens = cls_tokens.view(batch_size,-1)
-        x = self.linear1(cls_tokens)
-        x = self.bn6(x)
-        x = F.leaky_relu(x, negative_slope=0.2)
-        x = self.dp1(x)
-        x = self.linear2(x)
-
+        #TODO: output is here
+        cls_tokens_mean = torch.mean(cls_tokens, dim=2)
+        #cls_tokens = cls_tokens.view(batch_size,-1)
+        x = self.linear1(cls_tokens_mean)
+       # x = self.bn6(x)
+       # x = F.leaky_relu(x, negative_slope=0.2)
+       # x = self.dp1(x)
+       # x = self.linear2(x)
         return x
 
 
@@ -167,11 +225,11 @@ class EmbeddingModule(nn.Module):
         super(EmbeddingModule, self).__init__()
 
         # Convolutional Layers
-        self.conv1 = nn.Conv1d(in_channels=in_channels, out_channels=128, kernel_size=1, bias=False)
-        self.conv2 = nn.Conv1d(in_channels=128, out_channels=256, kernel_size=1, bias=False)
+        self.conv1 = nn.Conv1d(in_channels=in_channels, out_channels=out_channels//2, kernel_size=1, bias=False)
+        self.conv2 = nn.Conv1d(in_channels=out_channels//2, out_channels=out_channels, kernel_size=1, bias=False)
 
         # Batch Normalization Layers
-        self.bn1 = nn.BatchNorm1d(128)
+        self.bn1 = nn.BatchNorm1d(out_channels//2)
         self.bn2 = nn.BatchNorm1d(out_channels)
 
     def forward(self, x):
@@ -192,7 +250,7 @@ class EncoderModule(nn.Module):
     def __init__(self, in_features=256, num_heads=8):
         super(EncoderModule, self).__init__()
         
-        self.mh_sa = MultiHeadSelfAttentionTorch(in_features=in_features, head_dim=int(in_features/num_heads), num_heads=num_heads) # in_features is dim of each point
+        self.mh_sa = MultiHeadSelfAttention(in_features=in_features, head_dim=int(in_features/num_heads), num_heads=num_heads) 
         self.bn_after_sa = nn.BatchNorm1d(in_features)
 
         # Linear layer is to learn  interactions within each embedding independently of other embeddings
@@ -262,7 +320,7 @@ class MultiHeadSelfAttentionTorch(nn.Module):
     def forward(self, x):
         x = x.permute(0, 2, 1)
         attn_output, _ = self.attention(x, x, x)  # Self-attention
-        output = self.out_linear(attn_output)
-        output = output.permute(0, 2, 1)
+        #output = self.out_linear(attn_output)
+       # output = output.permute(0, 2, 1)
         
-        return output
+        return  attn_output.permute(0,2,1) #output

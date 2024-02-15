@@ -17,7 +17,7 @@ Alternatively, use the one that is already there.
 
 Not pretrained:
 
-`python train.py --batch_size 64  --epochs 250`
+`Python/3.11.3-GCCcore-12.3.0`
 
 This will save the model pointSSL_without_pretraining_250_2.t7 with best test accuracy to checkpoints\models.
 
