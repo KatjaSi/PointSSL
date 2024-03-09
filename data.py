@@ -6,6 +6,7 @@ import numpy as np
 from torch.utils.data import Dataset
 import matplotlib.pyplot as plt
 import random
+from scipy.spatial import KDTree
 
 
 def load_data(partition, data_dir):
@@ -99,6 +100,8 @@ def add_gaussian_noise(pointcloud, sigma=0.05):
 
 # additional augmentations to make the downstram task harder
 def rotate_pointcloud(pointcloud):
+    input_dtype = pointcloud.dtype
+
     angle_x = np.random.uniform(-np.pi/2, np.pi/2)  
     angle_y = np.random.uniform(-np.pi/2, np.pi/2) 
     angle_z = np.random.uniform(-np.pi/2, np.pi/2) 
@@ -106,17 +109,17 @@ def rotate_pointcloud(pointcloud):
     # Rotation matrix around X-axis
     R_x = np.array([[1, 0, 0],
                     [0, np.cos(angle_x), -np.sin(angle_x)],
-                    [0, np.sin(angle_x), np.cos(angle_x)]])
+                    [0, np.sin(angle_x), np.cos(angle_x)]], dtype=input_dtype)
     
     # Rotation matrix around Y-axis
     R_y = np.array([[np.cos(angle_y), 0, np.sin(angle_y)],
                     [0, 1, 0],
-                    [-np.sin(angle_y), 0, np.cos(angle_y)]])
+                    [-np.sin(angle_y), 0, np.cos(angle_y)]], dtype=input_dtype)
     
     # Rotation matrix around Z-axis
     R_z = np.array([[np.cos(angle_z), -np.sin(angle_z), 0],
                     [np.sin(angle_z), np.cos(angle_z), 0],
-                    [0, 0, 1]])
+                    [0, 0, 1]], dtype=input_dtype)
     
     # Combined rotation matrix: R = Rz * Ry * Rx
     R_combined = np.dot(R_z, np.dot(R_y, R_x))
@@ -140,10 +143,11 @@ class ModelNet(Dataset):
     def __getitem__(self, idx): # TODO: check how the data should be agumented
         x = self.data[idx][:self.num_points]
         y = self.labels[idx]
+        #np.random.shuffle(x)
         if self.set_type == 'train':
-           # x = jitter_pointcloud(x, sigma=0.01, clip=0.02)
-            #x = random_point_dropout(x) 
-            x = translate_pointcloud(x)
+          #  x = jitter_pointcloud(x, sigma=0.01, clip=0.02)
+            x = random_point_dropout(x) 
+           # x = translate_pointcloud(x)
             np.random.shuffle(x)
         return x, y    
 
@@ -197,6 +201,73 @@ class ModelNetForSSL(Dataset):
         np.random.shuffle(x_prime)
 
         return x_prime, x
+
+class ModelNetForMaskedLearning(Dataset):
+    def __init__(self, data, num_points, rotate=False, mask=False, num_key_points=10, num_neighbors=20):
+        self.data = data
+        self.num_points = num_points
+        self.rotate = rotate
+        self.mask = mask
+        self.num_key_points = num_key_points
+        self.num_neighbors = num_neighbors
+
+    def __len__(self):
+        return len(self.data)
+    
+    def __getitem__(self, idx): 
+        x = self.data[idx][:self.num_points]
+        x_aug = copy.deepcopy(x)
+
+        mask = np.ones(len(x_aug), dtype=bool) 
+
+        if self.rotate:
+            x_aug = rotate_pointcloud(x_aug)
+
+        if self.mask:
+           # key_point_indices = randomly_select_key_points(x_aug, num_key_points=self.num_key_points)
+            key_point_indices = fps(x_aug, num_key_points=self.num_key_points)
+            mask = mask_nearest_neighbors(x, key_point_indices, num_neighbors=self.num_neighbors).astype(bool)
+            x_aug[~mask] = np.array([0, 0, 0]) # TODO: sample where mask is true?
+
+        np.random.shuffle(x_aug)
+
+        return {
+            'augmented': x_aug,
+            'original': x,
+            'mask': mask if mask is not None else None
+        }
+
+
+def randomly_select_key_points(points, num_key_points=10):
+    # Randomly select indices for key points
+    key_point_indices = np.random.choice(len(points), num_key_points, replace=False)
+    return key_point_indices
+
+import numpy as np
+
+def fps(points, num_key_points=10):
+    N, D = points.shape
+    sampled_indices = np.zeros(num_key_points, dtype=int)
+    distances = np.inf * np.ones(N)
+    sampled_indices[0] = np.random.randint(0, N)
+    
+    for i in range(1, num_key_points):
+        last_added_point = points[sampled_indices[i-1]]
+        distances = np.minimum(distances, np.linalg.norm(points - last_added_point, axis=1))
+        sampled_indices[i] = np.argmax(distances)
+        
+    return sampled_indices
+
+
+def mask_nearest_neighbors(points, key_indices, num_neighbors=20):
+    tree = KDTree(points)
+    mask = np.ones(len(points), dtype=bool)  # Initially, all points are visible
+    for index in key_indices:
+        # Find indices of the nearest neighbors (including the point itself)
+        _, nn_indices = tree.query(points[index], k=num_neighbors)
+        # Mask the nearest neighbors
+        mask[nn_indices] = False
+    return mask
 
 if __name__ == '__main__':
     #train_points, train_labels = load_data2("train", folder='shapenetcorev2_hdf5_2048') #'modelnet10_hdf5_2048'

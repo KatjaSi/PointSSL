@@ -8,7 +8,7 @@ import numpy as np
 from torch.utils.data import DataLoader
 from torch.optim.lr_scheduler import CosineAnnealingLR
 from criterion import cross_entropy_loss_with_label_smoothing
-from pointSSL import POINT_SSL
+#from pointSSL import POINT_SSL
 from data import  ModelNet
 
 from data import  ModelNet, ModelNetAugmented
@@ -16,7 +16,9 @@ from models.task_model import PointCloudTaskModel
 from models.linear_models import ClassifierHead, MLPProjectionHead2
 
 from data import load_data
-from models.transformers import PCT_BASE, PCT_BASE2, PCT, SPCT
+from models.transformers import PCT_BASE2, PCT_ml, SPCT
+from models.pct import Pct
+
 seed = 42
 random.seed(seed)
 
@@ -151,8 +153,9 @@ def main():
     train_set = ModelNet(train_points, train_labels, num_points=args.num_points, set_type="train") #reduced_train_points ModelNetAugmented
     test_set = ModelNet(test_points, test_labels, num_points=args.num_points, set_type="test" ) #set_type="test" ModelNetAugmented
  
-    pct = PCT(out_channels=256, num_cls_tokens=1, num_encoders=8) #out_channels=256, num_cls_tokens=4, num_encoders=12
-    #pct = PCT_BASE2(out_channels=256)
+    #pct = PCT(out_channels=256, num_cls_tokens=1, num_encoders=16) #out_channels=256, num_cls_tokens=4, num_encoders=12
+   # pct = PCT_BASE2(out_channels=256)
+    pct = PCT_ml(out_dim=128)
     #classifier = MLPProjectionHead2(128, 64, 40)
     classifier = ClassifierHead(input_dim=256, output_channels=40)
     # pretrained or not?
@@ -165,7 +168,8 @@ def main():
        pct.load_state_dict(new_state_dict) #strict=False #TODO: this could be a problem
 
 
-    model = PointCloudTaskModel(feature_extractor=pct, classifier=classifier) #POINT_SSL(output_channels=40) #40
+    #model = PointCloudTaskModel(feature_extractor=pct, classifier=classifier) #POINT_SSL(output_channels=40) #40
+    model = Pct()
   #  model.set_mode("fine_tuning") #TODO
     #model = SPCT()
     # Set batch size
@@ -186,7 +190,7 @@ def main():
                     worker_init_fn=lambda x: torch.manual_seed(seed))
 
     opt = optim.SGD(model.parameters(), lr=args.lr, momentum=args.momentum, weight_decay=5e-4) # pct
-    #optimizer = optim.Adam(model.parameters(), lr=args.lr, weight_decay=5e-4)
+    optimizer = optim.Adam(model.parameters(), lr=0.001, weight_decay=5e-4)
 
     train(  model=model,
             train_loader=train_loader,

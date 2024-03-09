@@ -2,7 +2,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from flash_attn import flash_attn_qkvpacked_func, flash_attn_func
+#from flash_attn import flash_attn_qkvpacked_func, flash_attn_func
 
 import os
 #os.environ["CUDA_VISIBLE_DEVICES"] = "0"

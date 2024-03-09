@@ -32,9 +32,9 @@ class ClassifierHead(nn.Module):
         super(ClassifierHead, self).__init__()
         self.bn1 = nn.BatchNorm1d(input_dim)
         self.dp1 = nn.Dropout(0.5)
-        self.linear2 = nn.Linear(input_dim, 128) # global rep
+        self.linear2 = nn.Linear(input_dim, input_dim//2) # global rep
         self.dp2 = nn.Dropout(0.5)
-        self.linear3 = nn.Linear(128, output_channels)
+        self.linear3 = nn.Linear(input_dim//2, output_channels)
     
     def forward(self, x):
         x = self.bn1(x) #TODO: do i need this?
@@ -48,3 +48,24 @@ class ClassifierHead(nn.Module):
         x = self.linear3(x)
         return x
 
+class PointCloudDecoder(nn.Module):
+    def __init__(self):
+        super(PointCloudDecoder, self).__init__()
+        self.conv1 = nn.Conv1d(128+256, 128, kernel_size=1, bias=False)
+        self.bn1 = nn.BatchNorm1d(128)
+        self.relu1 = nn.ReLU()
+        self.conv2 = nn.Conv1d(128, 32, kernel_size=1, bias=False)
+        self.bn2 = nn.BatchNorm1d(32)
+        self.relu2 = nn.ReLU()
+        self.conv3 = nn.Conv1d(32, 3, kernel_size=1, bias=False)
+
+    def forward(self, x):
+        # Apply the series of convolutions and activations
+        x = self.conv1(x)
+        x = self.bn1(x)
+        x = self.relu1(x)
+        x = self.conv2(x)
+        x = self.bn2(x)
+        x = self.relu2(x)
+        x = self.conv3(x)
+        return x
