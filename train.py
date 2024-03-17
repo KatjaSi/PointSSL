@@ -16,8 +16,11 @@ from models.task_model import PointCloudTaskModel
 from models.linear_models import ClassifierHead, MLPProjectionHead2
 
 from data import load_data
-from models.transformers import PCT_BASE2, PCT_ml, SPCT
+from models.transformers import PCT_BASE2, PCT_ml, PCT
 from models.pct import Pct
+import os
+
+#os.environ["CUDA_VISIBLE_DEVICES"] = "0"
 
 seed = 42
 random.seed(seed)
@@ -25,7 +28,7 @@ random.seed(seed)
 def train(model, train_loader:DataLoader, test_loader:DataLoader, criterion, optimizer, num_epochs, pretrained):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     device = torch.device(device)
-    model = model.half().to(device)
+    model = model.to(device)
     model = nn.DataParallel(model)
 
     learning_rate = optimizer.param_groups[0]['lr']
@@ -42,7 +45,7 @@ def train(model, train_loader:DataLoader, test_loader:DataLoader, criterion, opt
         idx = 0
         for data, labels in (train_loader):
             batch_size = len(labels)
-            data = data.half().to(device) 
+            data = data.to(device) 
             labels = labels.to(device)
             data = data.permute(0, 2, 1)
             optimizer.zero_grad()
@@ -57,7 +60,7 @@ def train(model, train_loader:DataLoader, test_loader:DataLoader, criterion, opt
             running_loss += loss.item() * batch_size
             train_true.append(labels.cpu().numpy())
             train_pred.append(preds.detach().cpu().numpy())
-            idx += 1
+            idx += 1  
         scheduler.step()
             
         train_true = np.concatenate(train_true)
@@ -79,7 +82,7 @@ def train(model, train_loader:DataLoader, test_loader:DataLoader, criterion, opt
         test_pred = []
         test_true = []
         for data, labels in (test_loader):
-            data, labels = data.half().to(device), labels.to(device)
+            data, labels = data.to(device), labels.to(device)
             data = data.permute(0, 2, 1)
             batch_size = data.size()[0]
             outputs = model(data) # , downstream=True
@@ -142,22 +145,21 @@ def reduce_data(data, labels, percentage=10):
     return reduced_data, reduced_labels
 
 def main():
-    
     args = __parse_args__()
     train_points, train_labels = load_data("train", "data/modelnet40_ply_hdf5_2048")
     test_points, test_labels = load_data("test", "data/modelnet40_ply_hdf5_2048") #modelnet40_augmented_test
     #train_points, train_labels = load_data("train", "data/shapenetcorev2_hdf5_2048")
     #test_points, test_labels = load_data("test",  "data/shapenetcorev2_hdf5_2048")
- 
+    
 
     train_set = ModelNet(train_points, train_labels, num_points=args.num_points, set_type="train") #reduced_train_points ModelNetAugmented
     test_set = ModelNet(test_points, test_labels, num_points=args.num_points, set_type="test" ) #set_type="test" ModelNetAugmented
  
     #pct = PCT(out_channels=256, num_cls_tokens=1, num_encoders=16) #out_channels=256, num_cls_tokens=4, num_encoders=12
    # pct = PCT_BASE2(out_channels=256)
-    pct = PCT_ml(out_dim=128)
+    #pct = PCT_ml(out_dim=128)
     #classifier = MLPProjectionHead2(128, 64, 40)
-    classifier = ClassifierHead(input_dim=256, output_channels=40)
+    #classifier = ClassifierHead(input_dim=128*8, output_channels=40)
     # pretrained or not?
     if args.pretrained:
        state_dict = torch.load('checkpoints/models/pct_simclr/pct_base2_leiset251.t7') # 'checkpoints/models/point_ssl_1000_8.t7' 
@@ -169,34 +171,35 @@ def main():
 
 
     #model = PointCloudTaskModel(feature_extractor=pct, classifier=classifier) #POINT_SSL(output_channels=40) #40
-    model = Pct()
+    #model = Pct()
   #  model.set_mode("fine_tuning") #TODO
-    #model = SPCT()
+    model = PCT()
+
     # Set batch size
     batch_size = args.batch_size
 
     # Create DataLoader instances
     train_loader = DataLoader(
                     dataset=train_set,
-                    num_workers=2,
+                    num_workers=1,
                     batch_size=batch_size,
                     shuffle=True,
                     worker_init_fn=lambda x: torch.manual_seed(seed))
     test_loader = DataLoader(
                     dataset=test_set, 
-                    num_workers=2,
+                    num_workers=1,
                     batch_size=batch_size, 
                     shuffle=False,  
                     worker_init_fn=lambda x: torch.manual_seed(seed))
 
-    opt = optim.SGD(model.parameters(), lr=args.lr, momentum=args.momentum, weight_decay=5e-4) # pct
-    optimizer = optim.Adam(model.parameters(), lr=0.001, weight_decay=5e-4)
+    #opt = optim.SGD(model.parameters(), lr=args.lr, momentum=args.momentum, weight_decay=5e-4) # pct
+    optimizer = optim.Adam(model.parameters(), lr=0.00025, weight_decay=5e-4) 
 
     train(  model=model,
             train_loader=train_loader,
             test_loader=test_loader,
             criterion=cross_entropy_loss_with_label_smoothing,
-            optimizer=opt,
+            optimizer=optimizer,
             num_epochs=args.epochs,
             pretrained=args.pretrained
             )

@@ -1,3 +1,3 @@
-from .emd import earth_mover_distance as emd
+from .emd import EarthMoverDistance as emd
 
 __all__ = ['emd']

@@ -1,5 +1,7 @@
 import torch
 import torch.nn.functional as F
+from geomloss import SamplesLoss
+
 
 def cross_entropy_loss_with_label_smoothing(pred, gold, smoothing=True):
     '''
@@ -34,3 +36,6 @@ def cross_entropy_loss_with_label_smoothing(pred, gold, smoothing=True):
         loss = F.cross_entropy(pred, gold, reduction='mean')
 
     return loss
+
+def sinkhorn_loss(p=2, blur=0.05, scaling=0.8):
+    return SamplesLoss("sinkhorn", p=p, blur=blur, scaling=scaling)

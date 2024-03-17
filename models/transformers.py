@@ -1,8 +1,9 @@
+import math
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-
-#from flash_attn import flash_attn_qkvpacked_func, flash_attn_func
+import flash_attn
+from flash_attn import flash_attn_qkvpacked_func, flash_attn_func
 
 import os
 #os.environ["CUDA_VISIBLE_DEVICES"] = "0"
@@ -20,16 +21,16 @@ class PCT_ml(nn.Module):
         self.encoder4 = EncoderModule(out_dim, num_heads=4)
 
         #self.encoders = nn.ModuleList([SA_Layer(channels=out_dim) for _ in range(4)])
-        self.conv_fuse_conv = nn.Conv1d(out_dim*4, out_dim, kernel_size=1, bias=False)
+        self.conv_fuse_conv = nn.Conv1d(out_dim*4, out_dim*4, kernel_size=1, bias=False)
         if not mask:
-            self.conv_fuse_bn = nn.BatchNorm1d(out_dim)
+            self.conv_fuse_bn = nn.BatchNorm1d(out_dim*4)
         else:
-            self.conv_fuse_bn = MaskedBatchNorm1d(out_dim)
+            self.conv_fuse_bn = MaskedBatchNorm1d(out_dim*4)
 
         self.conv_fuse_activation = nn.LeakyReLU(negative_slope=0.2)
 
-        self.transform1 = nn.Linear(out_dim, out_dim)
-        self.transform2 = nn.Linear(out_dim, out_dim)
+        self.transform1 = nn.Linear(out_dim*4, out_dim*4)
+        self.transform2 = nn.Linear(out_dim*4, out_dim*4)
 
     def forward(self, x, mask=None): # the last dim is binary mask
         batch_size, _, num_points = x.size()
@@ -58,8 +59,8 @@ class PCT_ml(nn.Module):
             num_unmasked = mask_expanded.sum(dim=2).clamp(min=1)
             avg_pool = (sum_unmasked / num_unmasked).view(batch_size, -1)
         else:
-            max_pool = torch.max(x, 2, keepdim=True)[0].view(batch_size, -1)
-            avg_pool = torch.mean(x, 2).view(batch_size, -1)
+            max_pool = torch.max(lf, 2, keepdim=True)[0].view(batch_size, -1)
+            avg_pool = torch.mean(lf, 2).view(batch_size, -1)
 
         transform1 = self.transform1(max_pool)
         transform2 = self.transform2(avg_pool)
@@ -68,36 +69,76 @@ class PCT_ml(nn.Module):
         #lf = torch.cat([lf, gf.unsqueeze(-1).repeat(1,1,lf.shape[-1])], dim=1)
         return gf
 
-class SPCT(nn.Module):
+class PCT_ml2(nn.Module):
+    def __init__(self, out_dim=128, mask=None):
+        super(PCT_ml2, self).__init__()
+        self.out_dim = out_dim
+        # Assuming EmbeddingModule and EncoderModule are defined elsewhere
+        self.embedding_module = EmbeddingModule(in_channels=3, out_channels=out_dim, masked=mask)
+        self.encoder1 = EncoderModule(out_dim, num_heads=4)
+        self.encoder2 = EncoderModule(out_dim, num_heads=4)
+        self.encoder3 = EncoderModule(out_dim, num_heads=4)
+        self.encoder4 = EncoderModule(out_dim, num_heads=4)
+
+        #self.encoders = nn.ModuleList([SA_Layer(channels=out_dim) for _ in range(4)])
+        self.conv_fuse_conv = nn.Conv1d(out_dim, out_dim, kernel_size=1, bias=False)
+        self.conv_fuse_bn = nn.BatchNorm1d(out_dim)
+        self.conv_fuse_activation = nn.LeakyReLU(negative_slope=0.2)
+
+        self.transform1 = nn.Linear(out_dim, out_dim)
+        self.transform2 = nn.Linear(out_dim, out_dim)
+
+    def forward(self, x, mask=None): # the last dim is binary mask
+        batch_size, _, num_points = x.size()
+
+        x = self.embedding_module(x, mask)
+        #for encoder in self.encoders:
+         #   x = encoder(x, mask=mask)
+       # x = self.encoder1(x)
+       # x = self.encoder2(x)
+       # x = self.encoder3(x)
+       # x = self.encoder4(x)
+        x = self.conv_fuse_conv(x)
+        x = self.conv_fuse_bn(x)
+        x = self.conv_fuse_activation(x)
+        max_pool = torch.max(x, 2, keepdim=True)[0].view(batch_size, -1)
+        avg_pool = torch.mean(x, 2).view(batch_size, -1)
+
+        #transform1 = self.transform1(max_pool)
+        #transform2 = self.transform2(avg_pool)
+        transform1 = max_pool
+        transform2 = avg_pool
+        gf = torch.cat([transform1, transform2], dim=1)
+        return gf
+
+class PCT(nn.Module):
 
 
     def __init__(self, output_channels=40):
-        super(SPCT, self).__init__()
+        super(PCT, self).__init__()
 
         self.conv1 = nn.Conv1d(3, 128, kernel_size=1, bias=False)
         self.conv2 = nn.Conv1d(128, 256, kernel_size=1, bias=False) #128 <-> 256
-
         self.bn1 = nn.BatchNorm1d(128)
         self.bn2 = nn.BatchNorm1d(256)
-
-        self.encoder1 = EncoderModule(256, num_heads=4)
-        self.encoder2 = EncoderModule(256, num_heads=4)
-        self.encoder3 = EncoderModule(256, num_heads=4)
-        self.encoder4 = EncoderModule(256, num_heads=4)
+        self.encoder1 =  SA_Layer(256)
+        self.encoder2 =  SA_Layer(256)
+        self.encoder3 =  SA_Layer(256)
+        self.encoder4 =  SA_Layer(256)
 
         self.conv_fuse = nn.Sequential(nn.Conv1d(1024, 1024, kernel_size=1, bias=False),
-                                   nn.BatchNorm1d(1024), # 1024
+                                   nn.BatchNorm1d(1024), 
                                    nn.LeakyReLU(negative_slope=0.2))
         
-        self.linear1 = nn.Linear(1024, 512, bias=False) #1024, 512
-        self.bn6 = nn.BatchNorm1d(512) # 512
+        self.linear1 = nn.Linear(1024*2, 512, bias=False) 
+        self.bn6 = nn.BatchNorm1d(512) 
         self.dp1 = nn.Dropout(0.5)
  
-        self.linear2 = nn.Linear(512, 256) #512, 256
-        self.bn7 = nn.BatchNorm1d(256) #256
+        self.linear2 = nn.Linear(512, 256) 
+        self.bn7 = nn.BatchNorm1d(256) 
         self.dp2 = nn.Dropout(0.5)
 
-        self.linear3 = nn.Linear(256, output_channels) #256
+        self.linear3 = nn.Linear(256, output_channels) 
 
     def forward(self, x):
         batch_size, _, _ = x.size()
@@ -110,8 +151,9 @@ class SPCT(nn.Module):
         x4 = self.encoder4(x3)
         x = torch.cat((x1, x2, x3, x4), dim=1)
         x = self.conv_fuse(x)
-        x = F.adaptive_max_pool1d(x, 1)
-        x = x.view(batch_size, -1)
+        x_max_pool = F.adaptive_max_pool1d(x, 1).view(batch_size, -1)
+        x_avg_pool = F.adaptive_avg_pool1d(x, 1).view(batch_size, -1)
+        x = torch.cat((x_max_pool, x_avg_pool), dim=1)
 
         x = self.linear1(x)
         x = self.bn6(x) 
@@ -119,9 +161,9 @@ class SPCT(nn.Module):
         x = self.dp1(x) 
 
         x = self.linear2(x)
-        #x = self.bn7(x)
+        x = self.bn7(x)
         x = F.leaky_relu(x, negative_slope=0.2) 
-        x = self.dp2(x) 
+        #x = self.dp2(x) 
 
         x = self.linear3(x)
         return x
@@ -232,17 +274,17 @@ class EmbeddingModule(nn.Module):
 
         return x
 
-class EncoderModule(nn.Module):
+""" class EncoderModule(nn.Module):
 
     def __init__(self, in_features=256, num_heads=8, masked=False):
         super(EncoderModule, self).__init__()
         self.masked=masked
-        #self.q_conv = nn.Conv1d(in_features, in_features, 1, bias=False) # Q
-        #self.k_conv = nn.Conv1d(in_features, in_features, 1, bias=False) # K, queries and keys of same dimentionality
-        #self.v_conv = nn.Conv1d(in_features, in_features, 1) 
+        self.q_conv = nn.Conv1d(in_features, in_features, 1, bias=False) # Q
+        self.k_conv = nn.Conv1d(in_features, in_features, 1, bias=False) # K, queries and keys of same dimentionality
+        self.v_conv = nn.Conv1d(in_features, in_features, 1) 
 
-        self.mh_sa = nn.MultiheadAttention(num_heads=num_heads, embed_dim=in_features, batch_first=True)
-       # self.mh_sa = MultiHeadSelfAttention(in_features=in_features, head_dim=int(in_features/num_heads), num_heads=num_heads) 
+        #self.mh_sa = nn.MultiheadAttention(num_heads=num_heads, embed_dim=in_features, batch_first=True)
+        self.mh_sa = MultiHeadSelfAttention(in_features=in_features, head_dim=int(in_features/num_heads), num_heads=num_heads) 
         if not masked:
             self.bn_after_sa = nn.BatchNorm1d(in_features)
         else:
@@ -260,7 +302,10 @@ class EncoderModule(nn.Module):
         key_padding_mask = None
         if mask is not None:
             key_padding_mask = mask.squeeze(1) == False 
-        x_attention, _ = self.mh_sa(x.permute(0,2,1), x.permute(0,2,1), x.permute(0,2,1), key_padding_mask=key_padding_mask)
+        q = self.q_conv(x).permute(0, 2, 1)
+        k = self.k_conv(x).permute(0, 2, 1)
+        v = self.v_conv(x).permute(0, 2, 1)
+        x_attention, _ = self.mh_sa(q, k, v)#, key_padding_mask=key_padding_mask)
         x_attention = x_attention.permute(0, 2, 1)
         x = x + x_attention
         if not self.masked:
@@ -312,8 +357,68 @@ class MultiHeadSelfAttention(nn.Module):
         x = flash_attn_func(q, k, v) 
         x = torch.cat(tuple(x.unbind(3)), dim=2)
         x = x.permute(0,2,1)
+        return x """
+
+class EncoderModule(nn.Module):
+    def __init__(self, in_features=256, num_heads=8):
+        super(EncoderModule, self).__init__()
+        
+        #self.mh_sa = MultiHeadSelfAttention(in_features=in_features, head_dim=int(in_features/num_heads), num_heads=num_heads) 
+        self.mh_sa = MultiHeadSelfAttentionTorch(in_features=in_features, head_dim=int(in_features/num_heads), num_heads=num_heads) 
+        self.bn_after_sa = nn.BatchNorm1d(in_features)
+
+        # Linear layer is to learn  interactions within each embedding independently of other embeddings
+        self.linear_after_sa =  nn.Linear(in_features,in_features) 
+        self.bn_after_linear_sa = nn.BatchNorm1d(in_features) 
+        
+    def forward(self, x):
+        x_attention = self.mh_sa(x)
+        x = x + x_attention
+        x = self.bn_after_sa(x)
+        x = x.permute(0, 2, 1)
+        x_linear = self.linear_after_sa(x)
+        x = x + x_linear
+        x = x.permute(0, 2, 1)
+        x = self.bn_after_linear_sa(x)
+        
         return x
 
+class MultiHeadSelfAttention(nn.Module):
+    def __init__(self, in_features, head_dim, num_heads):
+        super(MultiHeadSelfAttention, self).__init__()
+        
+        self.in_features = in_features
+        self.num_heads = num_heads
+        self.head_dim = head_dim
+
+        self.q_conv = nn.Conv1d(in_features, in_features, 1, bias=False) # Q
+        self.k_conv = nn.Conv1d(in_features, in_features, 1, bias=False) # K, queries and keys of same dimentionality
+        self.q_conv.weight = self.k_conv.weight
+        self.q_conv.bias = self.k_conv.bias
+
+        self.v_conv = nn.Conv1d(in_features, in_features, 1)
+        assert  num_heads*head_dim == in_features
+        
+        self.out_linear = nn.Linear(head_dim * num_heads, in_features)
+        
+    def split_heads(self, x):
+        batch_size, seq_len, _ = x.size()
+        return x.view(batch_size, seq_len, self.num_heads, self.head_dim)
+    
+    def forward(self, x):
+
+        q = self.q_conv(x).permute(0, 2, 1)
+        k = self.k_conv(x).permute(0, 2, 1)
+        v = self.v_conv(x).permute(0, 2, 1)
+        
+        q = self.split_heads(q)
+        k = self.split_heads(k)
+        v = self.split_heads(v)
+        
+        x = flash_attn_func(q, k, v) # fa
+        x = torch.cat(tuple(x.unbind(3)), dim=2) # fa
+        x = x.permute(0,2,1)
+        return x
 
 class MultiHeadSelfAttentionTorch(nn.Module):
     def __init__(self, in_features, head_dim, num_heads):
@@ -322,6 +427,13 @@ class MultiHeadSelfAttentionTorch(nn.Module):
         self.in_features = in_features
         self.num_heads = num_heads
         self.head_dim = head_dim
+
+        self.q_conv = nn.Conv1d(channels, channels, 1, bias=False)
+        self.k_conv = nn.Conv1d(channels, channels, 1, bias=False)
+        self.q_conv.weight = self.k_conv.weight
+
+        self.v_conv = nn.Conv1d(channels, channels, 1)
+
         self.attention = nn.MultiheadAttention(embed_dim=in_features, num_heads=num_heads, batch_first=True)
         self.out_linear = nn.Linear(in_features, in_features)
 

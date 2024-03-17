@@ -145,9 +145,9 @@ class ModelNet(Dataset):
         y = self.labels[idx]
         #np.random.shuffle(x)
         if self.set_type == 'train':
-          #  x = jitter_pointcloud(x, sigma=0.01, clip=0.02)
+            x = jitter_pointcloud(x, sigma=0.01, clip=0.02)
             x = random_point_dropout(x) 
-           # x = translate_pointcloud(x)
+            x = translate_pointcloud(x)
             np.random.shuffle(x)
         return x, y    
 
