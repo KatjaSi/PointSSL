@@ -125,8 +125,8 @@ def rotate_pointcloud(pointcloud):
     R_combined = np.dot(R_z, np.dot(R_y, R_x))
     
     # Apply the combined rotation matrix to the point cloud
-    pointcloud_rotated = np.dot(pointcloud, R_combined.T)
-    
+   # pointcloud_rotated = np.dot(pointcloud, R_combined.T)
+    pointcloud_rotated = np.dot(pointcloud,R_z)
     return pointcloud_rotated
 
 

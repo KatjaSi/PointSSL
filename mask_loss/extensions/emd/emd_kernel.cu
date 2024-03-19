@@ -178,8 +178,8 @@ at::Tensor ApproxMatchForward(
   TORCH_CHECK_EQ(xyz2.size(0), b);//CHECK_EQ(xyz2.size(0), b);
   TORCH_CHECK_EQ(xyz1.size(2), 3); //CHECK_EQ(xyz1.size(2), 3);
   TORCH_CHECK_EQ(xyz2.size(2), 3);//CHECK_EQ(xyz2.size(2), 3);
-  CHECK_INPUT(xyz1);
-  CHECK_INPUT(xyz2);
+  //CHECK_INPUT(xyz1);
+  //CHECK_INPUT(xyz2);
 
   auto match = at::zeros({b, m, n}, xyz1.type());
   auto temp = at::zeros({b, (n+m)*2}, xyz1.type());

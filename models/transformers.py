@@ -69,47 +69,6 @@ class PCT_ml(nn.Module):
         #lf = torch.cat([lf, gf.unsqueeze(-1).repeat(1,1,lf.shape[-1])], dim=1)
         return gf
 
-class PCT_ml2(nn.Module):
-    def __init__(self, out_dim=128, mask=None):
-        super(PCT_ml2, self).__init__()
-        self.out_dim = out_dim
-        # Assuming EmbeddingModule and EncoderModule are defined elsewhere
-        self.embedding_module = EmbeddingModule(in_channels=3, out_channels=out_dim, masked=mask)
-        self.encoder1 = EncoderModule(out_dim, num_heads=4)
-        self.encoder2 = EncoderModule(out_dim, num_heads=4)
-        self.encoder3 = EncoderModule(out_dim, num_heads=4)
-        self.encoder4 = EncoderModule(out_dim, num_heads=4)
-
-        #self.encoders = nn.ModuleList([SA_Layer(channels=out_dim) for _ in range(4)])
-        self.conv_fuse_conv = nn.Conv1d(out_dim, out_dim, kernel_size=1, bias=False)
-        self.conv_fuse_bn = nn.BatchNorm1d(out_dim)
-        self.conv_fuse_activation = nn.LeakyReLU(negative_slope=0.2)
-
-        self.transform1 = nn.Linear(out_dim, out_dim)
-        self.transform2 = nn.Linear(out_dim, out_dim)
-
-    def forward(self, x, mask=None): # the last dim is binary mask
-        batch_size, _, num_points = x.size()
-
-        x = self.embedding_module(x, mask)
-        #for encoder in self.encoders:
-         #   x = encoder(x, mask=mask)
-       # x = self.encoder1(x)
-       # x = self.encoder2(x)
-       # x = self.encoder3(x)
-       # x = self.encoder4(x)
-        x = self.conv_fuse_conv(x)
-        x = self.conv_fuse_bn(x)
-        x = self.conv_fuse_activation(x)
-        max_pool = torch.max(x, 2, keepdim=True)[0].view(batch_size, -1)
-        avg_pool = torch.mean(x, 2).view(batch_size, -1)
-
-        #transform1 = self.transform1(max_pool)
-        #transform2 = self.transform2(avg_pool)
-        transform1 = max_pool
-        transform2 = avg_pool
-        gf = torch.cat([transform1, transform2], dim=1)
-        return gf
 
 class PCT(nn.Module):
 
@@ -126,17 +85,17 @@ class PCT(nn.Module):
         self.encoder3 =  SA_Layer(256)
         self.encoder4 =  SA_Layer(256)
 
-        self.conv_fuse = nn.Sequential(nn.Conv1d(1024, 1024, kernel_size=1, bias=False),
+        self.conv_fuse = nn.Sequential(nn.Conv1d(1024, 1024, kernel_size=1, bias=False), #1024, 1024
                                    nn.BatchNorm1d(1024), 
                                    nn.LeakyReLU(negative_slope=0.2))
         
-        self.linear1 = nn.Linear(1024*2, 512, bias=False) 
+        self.linear1 = nn.Linear(1024*2, 512, bias=False) # self.linear1 = nn.Linear(1024*2, 512, bias=False) 
         self.bn6 = nn.BatchNorm1d(512) 
         self.dp1 = nn.Dropout(0.5)
  
         self.linear2 = nn.Linear(512, 256) 
         self.bn7 = nn.BatchNorm1d(256) 
-        self.dp2 = nn.Dropout(0.5)
+        #self.dp2 = nn.Dropout(0.5)
 
         self.linear3 = nn.Linear(256, output_channels) 
 
@@ -166,6 +125,46 @@ class PCT(nn.Module):
         #x = self.dp2(x) 
 
         x = self.linear3(x)
+        return x
+
+
+class PCT_BASE(nn.Module):
+
+
+    def __init__(self, out_dim):
+        super(PCT_BASE, self).__init__()
+
+        self.conv1 = nn.Conv1d(3, 128, kernel_size=1, bias=False)
+        self.conv2 = nn.Conv1d(128, 256, kernel_size=1, bias=False)
+        self.bn1 = nn.BatchNorm1d(128)
+        self.bn2 = nn.BatchNorm1d(256)
+        self.encoder1 =  SA_Layer(256)
+        self.encoder2 =  SA_Layer(256)
+        self.encoder3 =  SA_Layer(256)
+        self.encoder4 =  SA_Layer(256)
+
+        self.conv_fuse = nn.Sequential(nn.Conv1d(1024, 1024, kernel_size=1, bias=False),
+                                   nn.BatchNorm1d(1024), 
+                                   nn.LeakyReLU(negative_slope=0.2))
+        self.linear1 = nn.Linear(1024*2, out_dim, bias=False)
+
+    def forward(self, x):
+        batch_size, _, _ = x.size()
+        x = F.leaky_relu(self.bn1(self.conv1(x)), negative_slope=0.2)
+        x = F.leaky_relu(self.bn2(self.conv2(x)), negative_slope=0.2)  
+
+        x1 = self.encoder1(x)
+        x2 = self.encoder2(x1)
+        x3 = self.encoder3(x2)
+        x4 = self.encoder4(x3)
+        x = torch.cat((x1, x2, x3, x4), dim=1)
+        x = self.conv_fuse(x)
+        x_max_pool = F.adaptive_max_pool1d(x, 1).view(batch_size, -1)
+        x_avg_pool = F.adaptive_avg_pool1d(x, 1).view(batch_size, -1)
+        x = torch.cat((x_max_pool, x_avg_pool), dim=1)
+
+        x = self.linear1(x)
+    
         return x
 
 
